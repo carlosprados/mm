@@ -1,6 +1,7 @@
 # Binary
 /mm
 /mm.exe
+/bin/
 
 # GoReleaser output
 /dist/

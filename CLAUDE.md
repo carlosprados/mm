@@ -2,80 +2,100 @@
 
 ## Context
 
-Go CLI to interact with a self-hosted Mattermost Server 11.6.1 at `https://chat.amplia.es`.
-Single-binary, Cobra-based, PAT auth. Follows the same conventions as the `jira` CLI already
-in this workspace.
+Go CLI + MCP server to interact with a self-hosted Mattermost Server 11.6.1
+at `https://chat.amplia.es`. Single-binary, Cobra-based, PAT auth, persistent
+session via `mm login`. Built as a dual-mode tool: same functionality is
+exposed via the CLI (for humans) and via MCP (for AI clients like Claude
+Desktop / Claude Code).
 
 ## Dependencies
 
 ```
-github.com/mattermost/mattermost/server/public/model  ← official Mattermost Go client (v11 compatible)
+github.com/mattermost/mattermost/server/public/model     ← official MM Go client (v11)
+github.com/modelcontextprotocol/go-sdk                   ← MCP server (v1.5.0)
 github.com/spf13/cobra
+golang.org/x/term                                        ← password prompt for `mm login`
 ```
 
 **Go toolchain:** 1.25.8+ (required by `mattermost/server/public` v0.3.1).
 
 Run after cloning:
 ```bash
-go mod tidy
+task tidy   # or: go mod tidy
+task build  # or: go build -o bin/mm .
 ```
 
-## Environment variables (required at runtime)
+## Authentication
 
-| Var        | Description                                 |
-|------------|---------------------------------------------|
-| `MM_URL`   | Server URL, e.g. `https://chat.amplia.es`   |
-| `MM_TOKEN` | Personal Access Token (PAT)                 |
-| `MM_TEAM`  | Team name, e.g. `amplia`                    |
+Two ways, with this precedence:
+
+1. **Saved session** — `mm login` writes `$XDG_CONFIG_HOME/mm/config.json`
+   (mode `0600`). Default for human users.
+2. **Environment variables** — `MM_URL`, `MM_TOKEN`, `MM_TEAM`. Override the
+   saved session, useful for CI / one-off shells.
 
 Generate a PAT in Mattermost → **Profile → Security → Personal Access Tokens → Create**.
+
+## CLI ↔ MCP parity (LOAD-BEARING RULE)
+
+The CLI and the MCP server expose the **same functionality**. Whenever you
+add, modify or remove a CLI command, you must apply the equivalent change to
+the MCP server (and vice versa). PRs that break parity should be rejected.
+
+Mapping table (keep in sync with the code):
+
+| CLI command            | MCP tool          | MCP resource(s)                              | MCP prompt(s)                                   |
+|------------------------|-------------------|----------------------------------------------|-------------------------------------------------|
+| `mm channels`          | `list_channels`   | `mm://team/channels`                         | —                                               |
+| `mm users`             | `list_users`      | `mm://team/users`                            | —                                               |
+| `mm read -c X -n N`    | `read_channel`    | `mm://channel/{name}/messages?limit=N`       | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
+| `mm send …`            | `send_message`    | —                                            | —                                               |
+| `mm whoami`            | `whoami`          | —                                            | —                                               |
+| `mm login` / `logout`  | _intentionally not exposed_ — auth is host-side, the MCP server reuses the saved session | — | — |
+
+Tools = explicit RPC actions. Resources = pull-model addressable data.
+Prompts = templates that hydrate themselves with live data and return ready-to-reason context.
+
+When in doubt about which surface to use:
+- **Side effect or write** → tool only.
+- **Read with parameters** → tool + resource template (compatibility).
+- **Read of a fixed dataset** → resource (and optionally a tool wrapper).
+- **Common workflow that combines reads + framing** → prompt.
 
 ## Project layout
 
 ```
 mm/
+├── Taskfile.yml
 ├── main.go
 ├── cmd/
-│   ├── root.go       — Cobra root, Execute()
-│   ├── channels.go   — `mm channels`: list joined channels
-│   ├── read.go       — `mm read -c <channel> [-n <limit>]`: read messages
-│   ├── send.go       — `mm send [-c <channel>|-u <username>] -m <message>`
-│   └── users.go      — `mm users`: list team members
+│   ├── root.go        — Cobra root, Execute()
+│   ├── channels.go    — `mm channels`
+│   ├── read.go        — `mm read -c <channel> [-n <limit>]`
+│   ├── send.go        — `mm send [-c <channel>|-u <username>] -m <message>`
+│   ├── users.go       — `mm users`
+│   ├── login.go       — `mm login` interactive auth + persisted session
+│   ├── logout.go      — `mm logout`
+│   ├── whoami.go      — `mm whoami`
+│   ├── mcp.go         — `mm mcp` → MCP server on stdio
+│   └── version.go     — `mm version`
 └── internal/
-    └── client/
-        └── mattermost.go  — MM struct, New(), GetDirectChannelWith(), ResolveUsernames()
-```
-
-## Commands
-
-```bash
-mm channels                              # list joined channels
-mm users                                 # list team members with @username
-mm read -c general -n 10                 # last 10 messages in #general
-mm send -c dev-backend -m "Deploy listo" # send to a channel
-mm send -u juan.garcia -m "¿Tienes un momento?" # send DM
-```
-
-## Status
-
-All commands implemented and compiling. `ResolveUsernames` resolves a batch of user IDs
-to `@username` in a single API call (dedupe → `GetUsersByIds` → fallback to raw ID).
-
-All client methods (`New`, `GetDirectChannelWith`, `ResolveUsernames`) take
-`context.Context` as the first argument; cobra commands propagate `cmd.Context()`.
-
-### Functional verification (pending)
-
-Set `MM_URL`, `MM_TOKEN`, `MM_TEAM` and run:
-
-```bash
-mm read -c general -n 5  # output must show @username, not raw UUIDs
+    ├── client/
+    │   └── mattermost.go  — MM struct, New(), env+config precedence
+    ├── config/
+    │   └── config.go      — XDG-aware credential persistence (0600)
+    └── mcp/
+        ├── server.go      — wires up tools/resources/prompts
+        ├── tools.go       — 5 tools
+        ├── resources.go   — 3 resources (1 fixed + 2 templated)
+        └── prompts.go     — 3 prompts
 ```
 
 ## Conventions
 
-- Code and comments in English.
+- Code and comments in English. Conversation in Spanish.
 - Errors wrapped with `fmt.Errorf("context: %w", err)`.
 - No global state beyond Cobra flag vars.
-- Do not add dependencies beyond those already in go.mod.
 - Do not auto-push or add co-author attributions.
+- Branching: feature branches off `develop`; PR to `develop`; release-time PR
+  to `main` + tag → GoReleaser publishes.
