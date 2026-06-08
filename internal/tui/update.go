@@ -2,6 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -24,6 +27,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch {
+		case m.imagePickMode:
+			return m.handleImageKey(msg)
 		case m.copyMode:
 			return m.handleCopyKey(msg)
 		case m.scheduleViewMode:
@@ -100,6 +105,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "copied to clipboard"
 		}
+		return m, nil
+
+	case attachmentsLoadedMsg:
+		if msg.err != nil {
+			m.status = "attachments: " + msg.err.Error()
+			return m, nil
+		}
+		if len(msg.images) == 0 {
+			m.status = "no image attachments in this channel"
+			return m, nil
+		}
+		m.imageAttachments = msg.images
+		m.imagePickCursor = len(msg.images) - 1 // most recent
+		m.imagePickMode = true
+		m.status = "view an image"
+		return m, nil
+
+	case imageReadyMsg:
+		if msg.err != nil {
+			m.status = "image: " + msg.err.Error()
+			return m, nil
+		}
+		return m, viewImageCmd(msg.path)
+
+	case imageClosedMsg:
+		if msg.path != "" {
+			_ = os.Remove(msg.path)
+		}
+		m.status = "closed image"
 		return m, nil
 
 	case scheduleTickMsg:
@@ -223,6 +257,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadPostsCmd(m.activeChannelID)
 		}
 		return m, m.loadChannelsCmd()
+
+	// View image attachments from the messages pane.
+	case msg.String() == "i" && m.focus == focusMessages:
+		if !m.anyAttachments() {
+			m.status = "no attachments in this channel"
+			return m, nil
+		}
+		m.status = "loading attachments…"
+		return m, m.loadAttachmentsCmd()
 
 	// Open the copy picker from the messages pane.
 	case msg.String() == "y" && m.focus == focusMessages && len(m.posts) > 0:
@@ -506,6 +549,109 @@ func copyCmd(text string) tea.Cmd {
 		}
 		return copiedMsg{}
 	}
+}
+
+// handleImageKey drives the image-attachment picker; enter renders the selected
+// image inline (via chafa, suspending the TUI).
+func (m Model) handleImageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc", "q":
+		m.imagePickMode = false
+		return m, nil
+	case "down", "j":
+		if m.imagePickCursor < len(m.imageAttachments)-1 {
+			m.imagePickCursor++
+		}
+		return m, nil
+	case "up", "k":
+		if m.imagePickCursor > 0 {
+			m.imagePickCursor--
+		}
+		return m, nil
+	case "enter":
+		if m.imagePickCursor < 0 || m.imagePickCursor >= len(m.imageAttachments) {
+			return m, nil
+		}
+		img := m.imageAttachments[m.imagePickCursor]
+		m.imagePickMode = false
+		m.status = "downloading " + img.name + "…"
+		return m, m.downloadImageCmd(img)
+	}
+	return m, nil
+}
+
+func (m Model) anyAttachments() bool {
+	for _, p := range m.posts {
+		if len(p.fileIDs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// loadAttachmentsCmd fetches file infos for posts with files and keeps images.
+func (m Model) loadAttachmentsCmd() tea.Cmd {
+	return func() tea.Msg {
+		var images []imageAttachment
+		for _, p := range m.posts {
+			if len(p.fileIDs) == 0 {
+				continue
+			}
+			infos, _, err := m.mm.Client.GetFileInfosForPost(m.ctx, p.postID, "")
+			if err != nil {
+				return attachmentsLoadedMsg{err: err}
+			}
+			for _, fi := range infos {
+				if strings.HasPrefix(fi.MimeType, "image/") {
+					images = append(images, imageAttachment{
+						label:  fmt.Sprintf("%s %s — %s", p.time, p.author, fi.Name),
+						fileID: fi.Id,
+						name:   fi.Name,
+					})
+				}
+			}
+		}
+		return attachmentsLoadedMsg{images: images}
+	}
+}
+
+func (m Model) downloadImageCmd(img imageAttachment) tea.Cmd {
+	return func() tea.Msg {
+		data, _, err := m.mm.Client.GetFile(m.ctx, img.fileID)
+		if err != nil {
+			return imageReadyMsg{err: err}
+		}
+		ext := filepath.Ext(img.name)
+		if ext == "" {
+			ext = ".img"
+		}
+		f, err := os.CreateTemp("", "mm-*"+ext)
+		if err != nil {
+			return imageReadyMsg{err: err}
+		}
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			return imageReadyMsg{err: err}
+		}
+		f.Close()
+		return imageReadyMsg{path: f.Name()}
+	}
+}
+
+// viewImageCmd suspends the TUI and renders the image with chafa (which
+// auto-detects the best protocol: sixel/kitty/iterm/symbols), waiting for Enter.
+func viewImageCmd(path string) tea.Cmd {
+	script := fmt.Sprintf("clear; chafa %s; printf '\\n[enter] to close'; read _ < /dev/tty", shellQuote(path))
+	c := exec.Command("sh", "-c", script)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return imageClosedMsg{path: path}
+	})
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // handleScheduleViewKey drives the in-TUI scheduled-messages viewer.
@@ -827,7 +973,7 @@ func (m Model) loadPostsCmd(channelID string) tea.Cmd {
 			p := posts.Posts[posts.Order[i]]
 			ts := time.UnixMilli(p.CreateAt).Format("15:04")
 			fmt.Fprintf(&b, "**%s · %s**\n\n%s\n\n---\n\n", ts, usernames[p.UserId], p.Message)
-			lines = append(lines, postLine{time: ts, author: usernames[p.UserId], message: p.Message})
+			lines = append(lines, postLine{postID: p.Id, time: ts, author: usernames[p.UserId], message: p.Message, fileIDs: p.FileIds})
 		}
 
 		// posts.Order is newest-first, so this collects own posts newest-first too.

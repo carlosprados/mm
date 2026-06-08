@@ -20,11 +20,14 @@ func (m Model) View() string {
 		Render(m.list.View())
 
 	// Modal pickers take over the right column.
-	if m.scheduleViewMode || m.copyMode {
+	if m.scheduleViewMode || m.copyMode || m.imagePickMode {
 		var bodyText string
-		if m.copyMode {
+		switch {
+		case m.copyMode:
 			bodyText = m.copyPickerBody()
-		} else {
+		case m.imagePickMode:
+			bodyText = m.imagePickerBody()
+		default:
 			bodyText = m.scheduleViewBody()
 		}
 		right := paneStyle(true).
@@ -57,6 +60,23 @@ func (m Model) View() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
 	return lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
+}
+
+func (m Model) imagePickerBody() string {
+	title := statusStyle.Render("View an image (chafa)")
+	if len(m.imageAttachments) == 0 {
+		return title + "\n\n  No image attachments."
+	}
+	var b strings.Builder
+	b.WriteString(title + "\n\n")
+	for i, img := range m.imageAttachments {
+		line := img.label
+		if i == m.imagePickCursor {
+			line = emojiSelStyle.Render(line)
+		}
+		b.WriteString("  " + line + "\n")
+	}
+	return b.String()
 }
 
 func (m Model) copyPickerBody() string {
@@ -132,7 +152,10 @@ func (m Model) footer() string {
 	if m.copyMode {
 		return footerStyle.Width(m.width).Render("copy · j/k move · enter/y copy Markdown · esc close")
 	}
-	help := "enter open · s scheduled · a alias · ctrl+s send · ctrl+t sched · : emoji · y copy · q quit"
+	if m.imagePickMode {
+		return footerStyle.Width(m.width).Render("images · j/k move · enter view · esc close")
+	}
+	help := "enter open · s scheduled · a alias · ctrl+s send · : emoji · y copy · i images · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }
