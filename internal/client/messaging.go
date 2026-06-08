@@ -1,0 +1,67 @@
+package client
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/mattermost/mattermost/server/public/model"
+
+	"github.com/carlosprados/mm/internal/alias"
+)
+
+// Target identifies where a message goes. Exactly one of Channel (a channel
+// slug) or User (a username or alias) must be set.
+type Target struct {
+	Channel string
+	User    string
+}
+
+func (t Target) validate() error {
+	if (t.Channel == "") == (t.User == "") {
+		return fmt.Errorf("specify exactly one of channel or user")
+	}
+	return nil
+}
+
+// ResolveChannelID turns a Target into a channel ID. For a DM it resolves
+// aliases to a canonical username, looks up the user and opens the direct
+// channel. Centralizing this keeps the CLI, TUI and MCP send paths from
+// drifting (see the CLI↔MCP parity rule).
+func (mm *MM) ResolveChannelID(ctx context.Context, t Target) (string, error) {
+	if err := t.validate(); err != nil {
+		return "", err
+	}
+	if t.User != "" {
+		store, err := alias.Load()
+		if err != nil {
+			return "", err
+		}
+		user, _, err := mm.Client.GetUserByUsername(ctx, store.Resolve(t.User), "")
+		if err != nil {
+			return "", fmt.Errorf("user not found: %w", err)
+		}
+		return mm.GetDirectChannelWith(ctx, user.Id)
+	}
+	ch, _, err := mm.Client.GetChannelByName(ctx, t.Channel, mm.TeamID, "")
+	if err != nil {
+		return "", fmt.Errorf("channel not found: %w", err)
+	}
+	return ch.Id, nil
+}
+
+// Send posts a message immediately. It returns the resolved channel ID and the
+// created post ID.
+func (mm *MM) Send(ctx context.Context, t Target, message string) (channelID, postID string, err error) {
+	if message == "" {
+		return "", "", fmt.Errorf("message is required")
+	}
+	channelID, err = mm.ResolveChannelID(ctx, t)
+	if err != nil {
+		return "", "", err
+	}
+	post, _, err := mm.Client.CreatePost(ctx, &model.Post{ChannelId: channelID, Message: message})
+	if err != nil {
+		return "", "", fmt.Errorf("could not send message: %w", err)
+	}
+	return channelID, post.Id, nil
+}

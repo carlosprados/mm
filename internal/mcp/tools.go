@@ -11,6 +11,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/carlosprados/mm/internal/alias"
+	"github.com/carlosprados/mm/internal/client"
 )
 
 // Input/output structs are exported so the MCP SDK can derive a JSON schema
@@ -158,40 +159,11 @@ func (s *Server) registerTools() {
 			Description: "Send a message to a channel or as a direct message to a user. The user field accepts either a canonical username or a configured alias. Side effect: creates a post. Provide either channel or user, never both.",
 		},
 		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in sendMessageIn) (*mcpsdk.CallToolResult, sendMessageOut, error) {
-			if in.Message == "" {
-				return nil, sendMessageOut{}, fmt.Errorf("message is required")
-			}
-			if (in.Channel == "") == (in.User == "") {
-				return nil, sendMessageOut{}, fmt.Errorf("provide exactly one of channel or user")
-			}
-
-			var channelID string
-			if in.User != "" {
-				store, err := alias.Load()
-				if err != nil {
-					return nil, sendMessageOut{}, err
-				}
-				user, _, err := s.mm.Client.GetUserByUsername(ctx, store.Resolve(in.User), "")
-				if err != nil {
-					return nil, sendMessageOut{}, fmt.Errorf("user not found: %w", err)
-				}
-				channelID, err = s.mm.GetDirectChannelWith(ctx, user.Id)
-				if err != nil {
-					return nil, sendMessageOut{}, err
-				}
-			} else {
-				ch, _, err := s.mm.Client.GetChannelByName(ctx, in.Channel, s.mm.TeamID, "")
-				if err != nil {
-					return nil, sendMessageOut{}, fmt.Errorf("channel not found: %w", err)
-				}
-				channelID = ch.Id
-			}
-
-			post, _, err := s.mm.Client.CreatePost(ctx, &model.Post{ChannelId: channelID, Message: in.Message})
+			channelID, postID, err := s.mm.Send(ctx, client.Target{Channel: in.Channel, User: in.User}, in.Message)
 			if err != nil {
-				return nil, sendMessageOut{}, fmt.Errorf("could not send message: %w", err)
+				return nil, sendMessageOut{}, err
 			}
-			return nil, sendMessageOut{OK: true, ChannelID: channelID, PostID: post.Id}, nil
+			return nil, sendMessageOut{OK: true, ChannelID: channelID, PostID: postID}, nil
 		},
 	)
 
