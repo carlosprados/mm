@@ -51,6 +51,8 @@ Mapping table (keep in sync with the code):
 | `mm read -c X -n N`    | `read_channel`    | `mm://channel/{name}/messages?limit=N`       | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
 | `mm send …`            | `send_message`    | —                                            | —                                               |
 | `mm edit …`            | `edit_message`    | —                                            | —                                               |
+| `mm schedule add`      | `schedule_message`| —                                            | —                                               |
+| `mm schedule list/rm`  | `manage_scheduled`| —                                            | —                                               |
 | `mm alias add/rm/list` | `manage_alias`    | —                                            | —                                               |
 | `mm whoami`            | `whoami`          | —                                            | —                                               |
 | `mm login` / `logout`  | _intentionally not exposed_ — auth is host-side, the MCP server reuses the saved session | — | — |
@@ -76,6 +78,7 @@ mm/
 │   ├── read.go        — `mm read -c <channel> [-n <limit>]`
 │   ├── send.go        — `mm send [-c <channel>|-u <username>] -m <message>`
 │   ├── edit.go        — `mm edit [-c <channel>|-u <username>] [--post <id>] -m <message>`
+│   ├── schedule.go    — `mm schedule add|list|rm` — server-side scheduled posts
 │   ├── users.go       — `mm users`
 │   ├── alias.go       — `mm alias add|rm|list` — short handles → usernames
 │   ├── login.go       — `mm login` interactive auth + persisted session
@@ -89,12 +92,15 @@ mm/
     │   └── alias.go       — alias→username store (aliases.json, 0644), Resolve()
     ├── client/
     │   ├── mattermost.go  — MM struct, New(), env+config precedence
-    │   └── messaging.go   — Target, ResolveChannelID, Send/SendToChannelID, EditPost (shared by CLI/TUI/MCP)
+    │   └── messaging.go   — Target, ResolveChannelID, Send, EditPost (shared by CLI/TUI/MCP)
     ├── config/
     │   └── config.go      — XDG-aware credential persistence (0600)
+    ├── schedule/
+    │   ├── schedule.go    — client-side scheduled-message store (scheduled.json, 0600)
+    │   └── time.go        — ParseTime (shared by CLI/TUI/MCP)
     ├── mcp/
     │   ├── server.go      — wires up tools/resources/prompts
-    │   ├── tools.go       — 7 tools
+    │   ├── tools.go       — 9 tools
     │   ├── resources.go   — 3 resources (1 fixed + 2 templated)
     │   └── prompts.go     — 3 prompts
     └── tui/               — interactive terminal UI (Bubble Tea)
@@ -121,6 +127,11 @@ TUI extras that stay leveled with the other surfaces:
   `mm alias` / `manage_alias`.
 - **Emoji picker** on a trailing `:query` in the composer (fuzzy search via
   `kyokomi/emoji`); inserts the unicode glyph.
+- **Schedule** the composed message with `ctrl+t` (same store as `mm schedule` /
+  `schedule_message`). This server has no scheduled-posts license, so delivery
+  is **client-side**: the TUI's delivery loop (`scheduleTickCmd`) sends due
+  items from `internal/schedule` while it runs (overdue items are caught up on
+  start). The CLI/MCP only record into the store.
 `internal/tui/emoji.go` holds the emoji dataset + search; it is a TUI-only
 input affordance (the resulting text is sent like any other), so it needs no
 CLI/MCP counterpart.

@@ -5,12 +5,13 @@ import "github.com/charmbracelet/bubbles/key"
 // keyMap holds the app-level bindings. Within-pane navigation (j/k, filtering,
 // viewport scrolling) is handled by the bubbles components themselves.
 type keyMap struct {
-	Tab     key.Binding
-	Enter   key.Binding
-	Back    key.Binding
-	Refresh key.Binding
-	Send    key.Binding
-	Quit    key.Binding
+	Tab      key.Binding
+	Enter    key.Binding
+	Back     key.Binding
+	Refresh  key.Binding
+	Send     key.Binding
+	Schedule key.Binding
+	Quit     key.Binding
 }
 
 func defaultKeys() keyMap {
@@ -34,6 +35,10 @@ func defaultKeys() keyMap {
 		Send: key.NewBinding(
 			key.WithKeys("ctrl+s"),
 			key.WithHelp("ctrl+s", "send"),
+		),
+		Schedule: key.NewBinding(
+			key.WithKeys("ctrl+t"),
+			key.WithHelp("ctrl+t", "schedule"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),

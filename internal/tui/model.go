@@ -24,11 +24,12 @@ const (
 )
 
 const (
-	sidebarWidth  = 32 // total, including border
-	composerLines = 3  // textarea visible rows
-	defaultLimit  = 30
-	pollInterval  = 5 // seconds
-	defaultWrapAt = 80
+	sidebarWidth     = 32 // total, including border
+	composerLines    = 3  // textarea visible rows
+	defaultLimit     = 30
+	pollInterval     = 5  // seconds — active channel refresh
+	scheduleInterval = 20 // seconds — scheduled-message delivery check
+	defaultWrapAt    = 80
 )
 
 // Model is the root Bubble Tea model. It owns the channel sidebar, the message
@@ -49,11 +50,19 @@ type Model struct {
 	aliasMode bool
 	aliasUser string
 
+	// scheduleMode captures a delivery time for the composed message.
+	scheduleMode  bool
+	scheduleInput textinput.Model
+
 	// Emoji picker: opens on a trailing ":query" in the composer.
 	emojiActive  bool
 	emojiMatches []emojiEntry
 	emojiIndex   int
 	emojiQuery   string
+
+	// deliveringIDs tracks scheduled items currently being sent, so the delivery
+	// loop doesn't dispatch the same item twice.
+	deliveringIDs map[string]bool
 
 	focus  focusArea
 	width  int
@@ -124,19 +133,24 @@ func New(ctx context.Context, mm *client.MM) Model {
 	ai := textinput.New()
 	ai.Placeholder = "alias"
 
+	si := textinput.New()
+	si.Placeholder = "+2h  ·  2006-01-02 15:04"
+
 	return Model{
-		ctx:        ctx,
-		mm:         mm,
-		keys:       defaultKeys(),
-		list:       l,
-		viewport:   viewport.New(0, 0),
-		composer:   ta,
-		aliasInput: ai,
-		renderer:   r,
-		styleName:  styleName,
-		focus:      focusSidebar,
-		limit:      defaultLimit,
-		status:     "Select a channel · enter opens · a aliases a DM",
+		ctx:           ctx,
+		mm:            mm,
+		keys:          defaultKeys(),
+		list:          l,
+		viewport:      viewport.New(0, 0),
+		composer:      ta,
+		aliasInput:    ai,
+		scheduleInput: si,
+		renderer:      r,
+		styleName:     styleName,
+		focus:         focusSidebar,
+		limit:         defaultLimit,
+		deliveringIDs: map[string]bool{},
+		status:        "Select a channel · enter opens · a aliases a DM",
 	}
 }
 
@@ -152,5 +166,5 @@ func (m *Model) setFocus(area focusArea) tea.Cmd {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadChannelsCmd(), tickCmd())
+	return tea.Batch(m.loadChannelsCmd(), tickCmd(), scheduleTickCmd())
 }
