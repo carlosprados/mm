@@ -50,6 +50,10 @@ Mapping table (keep in sync with the code):
 | `mm users`             | `list_users`      | `mm://team/users`                            | —                                               |
 | `mm read -c X -n N`    | `read_channel`    | `mm://channel/{name}/messages?limit=N`       | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
 | `mm send …`            | `send_message`    | —                                            | —                                               |
+| `mm edit …`            | `edit_message`    | —                                            | —                                               |
+| `mm schedule add`      | `schedule_message`| —                                            | —                                               |
+| `mm schedule list/rm`  | `manage_scheduled`| —                                            | —                                               |
+| `mm alias add/rm/list` | `manage_alias`    | —                                            | —                                               |
 | `mm whoami`            | `whoami`          | —                                            | —                                               |
 | `mm login` / `logout`  | _intentionally not exposed_ — auth is host-side, the MCP server reuses the saved session | — | — |
 
@@ -73,23 +77,75 @@ mm/
 │   ├── channels.go    — `mm channels`
 │   ├── read.go        — `mm read -c <channel> [-n <limit>]`
 │   ├── send.go        — `mm send [-c <channel>|-u <username>] -m <message>`
+│   ├── edit.go        — `mm edit [-c <channel>|-u <username>] [--post <id>] -m <message>`
+│   ├── schedule.go    — `mm schedule add|list|rm` — server-side scheduled posts
 │   ├── users.go       — `mm users`
+│   ├── alias.go       — `mm alias add|rm|list` — short handles → usernames
 │   ├── login.go       — `mm login` interactive auth + persisted session
 │   ├── logout.go      — `mm logout`
 │   ├── whoami.go      — `mm whoami`
 │   ├── mcp.go         — `mm mcp` → MCP server on stdio
+│   ├── tui.go         — `mm tui` → interactive terminal UI (Bubble Tea)
 │   └── version.go     — `mm version`
 └── internal/
+    ├── alias/
+    │   └── alias.go       — alias→username store (aliases.json, 0644), Resolve()
     ├── client/
-    │   └── mattermost.go  — MM struct, New(), env+config precedence
+    │   ├── mattermost.go  — MM struct, New(), env+config precedence
+    │   └── messaging.go   — Target, ResolveChannelID, Send, EditPost (shared by CLI/TUI/MCP)
     ├── config/
     │   └── config.go      — XDG-aware credential persistence (0600)
-    └── mcp/
-        ├── server.go      — wires up tools/resources/prompts
-        ├── tools.go       — 5 tools
-        ├── resources.go   — 3 resources (1 fixed + 2 templated)
-        └── prompts.go     — 3 prompts
+    ├── schedule/
+    │   ├── schedule.go    — client-side scheduled-message store (scheduled.json, 0600)
+    │   └── time.go        — ParseTime (shared by CLI/TUI/MCP)
+    ├── mcp/
+    │   ├── server.go      — wires up tools/resources/prompts
+    │   ├── tools.go       — 9 tools
+    │   ├── resources.go   — 3 resources (1 fixed + 2 templated)
+    │   └── prompts.go     — 3 prompts
+    └── tui/               — interactive terminal UI (Bubble Tea)
+        ├── model.go       — root model, focus, channelItem, edit/alias/emoji state
+        ├── update.go      — Update loop + async tea.Cmds (polling), layout
+        ├── view.go        — lipgloss layout (sidebar + messages + emoji popup + composer + footer)
+        ├── keys.go        — app-level keymap
+        ├── messages.go    — tea.Msg types
+        ├── emoji.go       — emoji dataset + ":query" search (kyokomi/emoji)
+        └── styles.go      — lipgloss styles
 ```
+
+## TUI (`mm tui`)
+
+A third surface alongside the CLI and MCP, built on Bubble Tea + bubbles +
+lipgloss, with Markdown rendered by glamour. It reuses `client.MM` and the
+shared messaging service; it does **not** introduce its own Mattermost logic.
+Auth is host-side (saved session / env), like `mm mcp`, so it has no MCP
+counterpart. Active channel is refreshed by polling (no WebSocket yet).
+
+TUI extras that stay leveled with the other surfaces:
+- **Edit** your own messages with `↑` (same as `mm edit` / `edit_message`).
+- **Alias** a DM's user with `a` — writes the same `aliases.json` as
+  `mm alias` / `manage_alias`.
+- **Emoji picker** on a trailing `:query` in the composer (fuzzy search via
+  `kyokomi/emoji`); inserts the unicode glyph.
+- **Unread-first sidebar**: channels/DMs with unread messages sort to the top
+  (`●` bullet + mention count), via `client.ChannelMembers` (LastViewedAt vs
+  channel LastPostAt). Opening a channel calls `client.MarkChannelRead`
+  (`ViewChannel`) — a server-side side effect that also clears unread on
+  web/mobile. The sidebar reloads on the schedule tick (selection preserved).
+- **Scheduled-messages viewer**: `s` from the sidebar lists pending scheduled
+  messages from `internal/schedule`; `x` cancels the selected one.
+- **Scroll & copy**: the message pane preserves scroll position across polling
+  reloads (only `GotoBottom` when already at bottom). `y` opens a copy picker
+  that writes a message's Markdown source to the clipboard via
+  `github.com/atotto/clipboard` (xclip/xsel/wl-copy backends).
+- **Schedule** the composed message with `ctrl+t` (same store as `mm schedule` /
+  `schedule_message`). This server has no scheduled-posts license, so delivery
+  is **client-side**: the TUI's delivery loop (`scheduleTickCmd`) sends due
+  items from `internal/schedule` while it runs (overdue items are caught up on
+  start). The CLI/MCP only record into the store.
+`internal/tui/emoji.go` holds the emoji dataset + search; it is a TUI-only
+input affordance (the resulting text is sent like any other), so it needs no
+CLI/MCP counterpart.
 
 ## Conventions
 
