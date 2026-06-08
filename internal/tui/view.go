@@ -19,12 +19,18 @@ func (m Model) View() string {
 		Height(d.sidebarInnerH).
 		Render(m.list.View())
 
-	// The scheduled-messages viewer takes over the right column.
-	if m.scheduleViewMode {
+	// Modal pickers take over the right column.
+	if m.scheduleViewMode || m.copyMode {
+		var bodyText string
+		if m.copyMode {
+			bodyText = m.copyPickerBody()
+		} else {
+			bodyText = m.scheduleViewBody()
+		}
 		right := paneStyle(true).
 			Width(d.msgInnerW).
 			Height(d.sidebarInnerH).
-			Render(m.scheduleViewBody())
+			Render(bodyText)
 		body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
 		return lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
 	}
@@ -51,6 +57,23 @@ func (m Model) View() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
 	return lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
+}
+
+func (m Model) copyPickerBody() string {
+	title := statusStyle.Render("Copy a message (Markdown)")
+	if len(m.posts) == 0 {
+		return title + "\n\n  No messages."
+	}
+	var b strings.Builder
+	b.WriteString(title + "\n\n")
+	for i, p := range m.posts {
+		line := fmt.Sprintf("%s  %s: %s", p.time, p.author, firstLineTUI(p.message))
+		if i == m.copyCursor {
+			line = emojiSelStyle.Render(line)
+		}
+		b.WriteString("  " + line + "\n")
+	}
+	return b.String()
 }
 
 func (m Model) scheduleViewBody() string {
@@ -106,7 +129,10 @@ func (m Model) footer() string {
 	if m.scheduleViewMode {
 		return footerStyle.Width(m.width).Render("scheduled · j/k move · x cancel · esc close")
 	}
-	help := "enter open · s scheduled · a alias · ctrl+s send · ctrl+t schedule · : emoji · q quit"
+	if m.copyMode {
+		return footerStyle.Width(m.width).Render("copy · j/k move · enter/y copy Markdown · esc close")
+	}
+	help := "enter open · s scheduled · a alias · ctrl+s send · ctrl+t sched · : emoji · y copy · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }

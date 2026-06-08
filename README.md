@@ -280,10 +280,17 @@ haven't read: they sort to the top (most recent first) with a `●` bullet and a
 `(N)` mention count. Opening a channel marks it read (server-side, so it also
 clears on web/mobile). The list refreshes itself periodically.
 
+**Scroll & copy.** `tab` to the message pane, then `j`/`k` / `pgup`/`pgdn` to
+scroll; your position is kept across background refreshes (it only snaps to the
+bottom if you were already there). Press `y` to copy any message's Markdown
+source to the clipboard — handy for code blocks and formatted text alike.
+Clipboard needs `xclip`/`xsel` (X11) or `wl-copy` (Wayland).
+
 | Key             | Action                                                       |
 |-----------------|--------------------------------------------------------------|
 | `tab`           | Cycle focus: sidebar → messages → composer                   |
-| `j` / `k`       | Move within the focused pane                                 |
+| `j` / `k`       | Move within the focused pane (scroll the message pane when focused) |
+| `y`             | On the message pane: open the copy picker — pick a message, `enter`/`y` copies its **Markdown source** to the clipboard |
 | `/`             | Filter the sidebar (matches alias and @handle)               |
 | `enter`         | Open the selected channel (marks it read; focus → composer)  |
 | `a`             | On a selected DM: assign an alias to that colleague          |

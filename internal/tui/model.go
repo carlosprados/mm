@@ -72,6 +72,11 @@ type Model struct {
 	scheduleView       []schedule.Item
 	scheduleViewCursor int
 
+	// posts holds the active channel's displayed messages (for the copy picker).
+	posts      []postLine
+	copyMode   bool
+	copyCursor int
+
 	focus  focusArea
 	width  int
 	height int
@@ -95,6 +100,14 @@ type Model struct {
 // ownPost is one of the current user's editable posts in the active channel.
 type ownPost struct {
 	id      string
+	message string
+}
+
+// postLine is a displayed message in the active channel, kept so it can be
+// copied as Markdown source.
+type postLine struct {
+	time    string
+	author  string
 	message string
 }
 
