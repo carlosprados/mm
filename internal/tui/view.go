@@ -64,7 +64,11 @@ func (m Model) footer() string {
 		return footerStyle.Width(m.width).
 			Render("alias for @" + m.aliasUser + ": " + m.aliasInput.View() + "  (enter saves · esc cancels)")
 	}
-	help := "tab switch · enter open · ctrl+s send · : emoji · a alias · / filter · q quit"
+	if m.scheduleMode {
+		return footerStyle.Width(m.width).
+			Render("deliver at: " + m.scheduleInput.View() + "  (enter schedules · esc cancels)")
+	}
+	help := "tab · enter open · ctrl+s send · ctrl+t schedule · : emoji · a alias · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }

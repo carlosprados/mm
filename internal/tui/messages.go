@@ -26,5 +26,22 @@ type sentMsg struct {
 	channelID string
 }
 
+// scheduledMsg reports a message was stored for later delivery.
+type scheduledMsg struct {
+	when string
+	err  error
+}
+
+// scheduledDeliveredMsg reports the outcome of delivering a due scheduled item.
+type scheduledDeliveredMsg struct {
+	id        string
+	label     string
+	channelID string
+	err       error
+}
+
 // tickMsg drives the polling refresh of the active channel.
 type tickMsg struct{}
+
+// scheduleTickMsg drives the scheduled-message delivery loop.
+type scheduleTickMsg struct{}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/carlosprados/mm/internal/alias"
 	"github.com/carlosprados/mm/internal/client"
+	"github.com/carlosprados/mm/internal/schedule"
 )
 
 // Input/output structs are exported so the MCP SDK can derive a JSON schema
@@ -77,6 +78,36 @@ type editMessageIn struct {
 type editMessageOut struct {
 	OK     bool   `json:"ok"`
 	PostID string `json:"post_id"`
+}
+
+type scheduleMessageIn struct {
+	Channel string `json:"channel,omitempty" jsonschema:"target channel (mutually exclusive with user)"`
+	User    string `json:"user,omitempty" jsonschema:"target username or alias for a DM (mutually exclusive with channel)"`
+	Message string `json:"message" jsonschema:"message body"`
+	At      string `json:"at" jsonschema:"delivery time: RFC3339, \"2006-01-02 15:04\" (local), or a relative \"+2h\""`
+}
+
+type scheduleMessageOut struct {
+	OK          bool   `json:"ok"`
+	ID          string `json:"id"`
+	ScheduledAt string `json:"scheduled_at"`
+}
+
+type manageScheduledIn struct {
+	Action string `json:"action" jsonschema:"one of: list, cancel"`
+	ID     string `json:"id,omitempty" jsonschema:"scheduled post id (required for cancel)"`
+}
+
+type scheduledEntry struct {
+	ID          string `json:"id"`
+	ScheduledAt string `json:"scheduled_at"`
+	ChannelID   string `json:"channel_id"`
+	Message     string `json:"message"`
+}
+
+type manageScheduledOut struct {
+	OK        bool             `json:"ok"`
+	Scheduled []scheduledEntry `json:"scheduled"`
 }
 
 type manageAliasIn struct {
@@ -202,6 +233,80 @@ func (s *Server) registerTools() {
 				return nil, editMessageOut{}, err
 			}
 			return nil, editMessageOut{OK: true, PostID: postID}, nil
+		},
+	)
+
+	mcpsdk.AddTool(s.srv,
+		&mcpsdk.Tool{
+			Name:        "schedule_message",
+			Description: "Schedule a message for later delivery. Provide either channel or user, plus a delivery time. Stored locally; delivered by mm while `mm tui` is running (this server has no scheduled-posts license).",
+		},
+		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in scheduleMessageIn) (*mcpsdk.CallToolResult, scheduleMessageOut, error) {
+			at, err := schedule.ParseTime(in.At)
+			if err != nil {
+				return nil, scheduleMessageOut{}, err
+			}
+			channelID, err := s.mm.ResolveChannelID(ctx, client.Target{Channel: in.Channel, User: in.User})
+			if err != nil {
+				return nil, scheduleMessageOut{}, err
+			}
+			store, err := schedule.Load()
+			if err != nil {
+				return nil, scheduleMessageOut{}, err
+			}
+			label := in.Channel
+			if in.User != "" {
+				label = "@" + in.User
+			}
+			it, err := store.Add(channelID, label, in.Message, at)
+			if err != nil {
+				return nil, scheduleMessageOut{}, err
+			}
+			if err := store.Save(); err != nil {
+				return nil, scheduleMessageOut{}, err
+			}
+			return nil, scheduleMessageOut{OK: true, ID: it.ID, ScheduledAt: at.Format(time.RFC3339)}, nil
+		},
+	)
+
+	mcpsdk.AddTool(s.srv,
+		&mcpsdk.Tool{
+			Name:        "manage_scheduled",
+			Description: "List or cancel your pending scheduled messages. Side effect (cancel): removes a stored scheduled message.",
+		},
+		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in manageScheduledIn) (*mcpsdk.CallToolResult, manageScheduledOut, error) {
+			store, err := schedule.Load()
+			if err != nil {
+				return nil, manageScheduledOut{}, err
+			}
+			switch in.Action {
+			case "cancel":
+				if in.ID == "" {
+					return nil, manageScheduledOut{}, fmt.Errorf("id is required to cancel")
+				}
+				if err := store.Remove(in.ID); err != nil {
+					return nil, manageScheduledOut{}, err
+				}
+				if err := store.Save(); err != nil {
+					return nil, manageScheduledOut{}, err
+				}
+			case "list", "":
+				// fall through to return current state
+			default:
+				return nil, manageScheduledOut{}, fmt.Errorf("unknown action %q (use list or cancel)", in.Action)
+			}
+
+			items := store.Sorted()
+			out := manageScheduledOut{OK: true, Scheduled: make([]scheduledEntry, 0, len(items))}
+			for _, it := range items {
+				out.Scheduled = append(out.Scheduled, scheduledEntry{
+					ID:          it.ID,
+					ScheduledAt: it.At.Format(time.RFC3339),
+					ChannelID:   it.ChannelID,
+					Message:     it.Message,
+				})
+			}
+			return nil, out, nil
 		},
 	)
 

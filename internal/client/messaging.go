@@ -101,3 +101,7 @@ func (mm *MM) EditPost(ctx context.Context, postID, message string) error {
 	}
 	return nil
 }
+
+// Scheduling is implemented client-side in internal/schedule (this server has
+// no scheduled-posts license). The shared delivery primitive is SendToChannelID
+// above; the TUI's delivery loop calls it when a scheduled item is due.

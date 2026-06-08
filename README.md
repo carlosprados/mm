@@ -29,9 +29,10 @@ Built against Mattermost Server **11.6.x** using the official
 - Send a message to a channel **or** a direct message to a user.
 - Resolves user IDs to `@usernames` in batch — no opaque UUIDs.
 - Edit your own messages from the CLI, the TUI (`↑`) or MCP.
+- Schedule messages for later delivery (CLI, TUI `ctrl+t`, MCP); delivered by the TUI while it runs.
 - Configurable aliases: DM a colleague by a short handle (`luis` → `luisdavid.francisco`).
-- Interactive TUI (`mm tui`) built on Bubble Tea, with Markdown rendering.
-- MCP server (`mm mcp`) with **7 tools**, **3 resources** and **3 prompts**.
+- Interactive TUI (`mm tui`) built on Bubble Tea, with Markdown rendering and an emoji picker.
+- MCP server (`mm mcp`) with **9 tools**, **3 resources** and **3 prompts**.
 
 ---
 
@@ -220,6 +221,25 @@ mm edit -c dev-backend -m "Deploy listo (corregido)"
 mm edit -u luis        -m "Perdón, quería decir mañana"
 ```
 
+### `mm schedule` — send messages later
+
+> This server has no scheduled-posts license, so delivery is done by **mm
+> itself**: scheduled messages are stored locally
+> (`$XDG_CONFIG_HOME/mm/scheduled.json`) and delivered by the **TUI while it is
+> running**. If the TUI is not running at the due time, the message is sent the
+> next time the TUI starts (overdue messages are caught up). `mm schedule add`
+> from the CLI only records the message.
+
+```bash
+mm schedule add -c dev-backend -m "Buenos días, recordad la demo" --at "2026-06-09 09:00"
+mm schedule add -u luis -m "Te llamo en un rato" --at "+2h"
+mm schedule list
+mm schedule rm <id>
+```
+
+`--at` accepts `"2006-01-02 15:04"` (local), RFC3339, `"15:04"` (today), or a
+relative `"+2h"` / `"+90m"`.
+
 ### `mm alias` — short handles for colleagues
 
 Map a short handle to a canonical username so you can DM `luisdavid.francisco`
@@ -263,6 +283,7 @@ channel is refreshed by polling.
 | `enter`         | Open the selected channel (focus jumps to the composer)      |
 | `a`             | On a selected DM: assign an alias to that colleague          |
 | `ctrl+s`        | Send the composed message                                    |
+| `ctrl+t`        | Schedule the composed message (prompts for a delivery time)  |
 | `:` + text      | Emoji picker — fuzzy search, `↑`/`↓` to choose, `enter`/`tab` to insert |
 | `↑` / `↓`       | In the composer: walk back/forward through **your** messages to edit them; `↓` past the newest restores your draft |
 | `esc`           | Close the emoji picker / cancel an edit (restores the draft) / back to sidebar |
@@ -346,6 +367,8 @@ npx @modelcontextprotocol/inspector mm mcp
 | `mm read`        | `read_channel` | `mm://channel/{name}/messages?limit={n}`    | feeds `summarize_channel`, `draft_reply`, `daily_digest`  |
 | `mm send`        | `send_message` | —                                           | —                                                         |
 | `mm edit`        | `edit_message` | —                                           | —                                                         |
+| `mm schedule add`| `schedule_message` | —                                       | —                                                         |
+| `mm schedule list/rm` | `manage_scheduled` | —                                  | —                                                         |
 | `mm alias`       | `manage_alias` | —                                           | —                                                         |
 | `mm whoami`      | `whoami`       | —                                           | —                                                         |
 | `mm login/logout`| _host-side only_ — MCP reuses the saved session | — | —                                                |
@@ -404,6 +427,7 @@ mm/
 │   ├── read.go
 │   ├── send.go
 │   ├── edit.go
+│   ├── schedule.go
 │   ├── alias.go
 │   ├── users.go
 │   ├── mcp.go
@@ -417,6 +441,9 @@ mm/
     │   └── messaging.go  — Target, Send, EditPost (shared by CLI/TUI/MCP)
     ├── config/           — Persisted session (XDG, 0600)
     │   └── config.go
+    ├── schedule/         — client-side scheduled messages (XDG, 0600)
+    │   ├── schedule.go   — store: Add/Remove/Due/Sorted
+    │   └── time.go       — ParseTime
     ├── mcp/              — MCP server (parity with CLI)
     │   ├── server.go
     │   ├── tools.go
@@ -428,6 +455,7 @@ mm/
         ├── view.go
         ├── keys.go
         ├── messages.go
+        ├── emoji.go
         └── styles.go
 ```
 

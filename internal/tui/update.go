@@ -13,6 +13,7 @@ import (
 	"github.com/mattermost/mattermost/server/public/model"
 
 	"github.com/carlosprados/mm/internal/alias"
+	"github.com/carlosprados/mm/internal/schedule"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -21,10 +22,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.resize(msg.Width, msg.Height), nil
 
 	case tea.KeyMsg:
-		if m.aliasMode {
+		switch {
+		case m.aliasMode:
 			return m.handleAliasKey(msg)
+		case m.scheduleMode:
+			return m.handleScheduleKey(msg)
+		default:
+			return m.handleKey(msg)
 		}
-		return m.handleKey(msg)
 
 	case channelsLoadedMsg:
 		m.list.SetItems(msg.items)
@@ -54,6 +59,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadPostsCmd(msg.channelID)
 		}
 		return m, nil
+
+	case scheduledMsg:
+		if msg.err != nil {
+			m.status = "schedule error: " + msg.err.Error()
+		} else {
+			m.status = "scheduled for " + msg.when
+		}
+		return m, nil
+
+	case scheduleTickMsg:
+		return m, tea.Batch(append(m.deliverDueCmds(), scheduleTickCmd())...)
+
+	case scheduledDeliveredMsg:
+		delete(m.deliveringIDs, msg.id)
+		if msg.err != nil {
+			m.status = "scheduled delivery failed (" + msg.label + "): " + msg.err.Error()
+			return m, nil // leave it in the store to retry next tick
+		}
+		m.status = "delivered scheduled message → " + msg.label
+		cmds := []tea.Cmd{removeScheduledCmd(msg.id)}
+		if msg.channelID == m.activeChannelID {
+			cmds = append(cmds, m.loadPostsCmd(msg.channelID))
+		}
+		return m, tea.Batch(cmds...)
 
 	case tickMsg:
 		cmds := []tea.Cmd{tickCmd()}
@@ -104,6 +133,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Send):
 		return m.sendMessage()
+
+	// Ctrl+T schedules the composed message for later delivery.
+	case key.Matches(msg, m.keys.Schedule) && m.focus == focusComposer:
+		if strings.TrimSpace(m.composer.Value()) == "" || m.activeChannelID == "" {
+			return m, nil
+		}
+		m.scheduleMode = true
+		m.scheduleInput.SetValue("")
+		m.scheduleInput.Focus()
+		m.status = "deliver when?"
+		return m, nil
 
 	// Press 'a' on a selected DM to assign it an alias.
 	case msg.String() == "a" && m.focus == focusSidebar && !filtering:
@@ -332,6 +372,41 @@ func (m Model) handleAliasKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// handleScheduleKey captures the delivery time and schedules the composed message.
+func (m Model) handleScheduleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "enter":
+		at, err := schedule.ParseTime(m.scheduleInput.Value())
+		if err != nil {
+			m.status = "time: " + err.Error() // keep the prompt open to fix it
+			return m, nil
+		}
+		text := strings.TrimSpace(m.composer.Value())
+		m.scheduleMode = false
+		m.scheduleInput.Blur()
+		if text == "" || m.activeChannelID == "" {
+			m.status = "nothing to schedule"
+			return m, nil
+		}
+		ch := m.activeChannelID
+		label := m.activeChannelName
+		m.composer.Reset()
+		m.status = "scheduling…"
+		return m, m.scheduleCmd(ch, label, text, at)
+	case "esc":
+		m.scheduleMode = false
+		m.scheduleInput.Blur()
+		m.status = "schedule cancelled"
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.scheduleInput, cmd = m.scheduleInput.Update(msg)
+		return m, cmd
+	}
+}
+
 func saveAlias(name, username string) error {
 	store, err := alias.Load()
 	if err != nil {
@@ -370,6 +445,7 @@ func (m Model) applyLayout() Model {
 	m.composer.SetWidth(d.msgInnerW)
 	m.composer.SetHeight(composerLines)
 	m.aliasInput.Width = d.msgInnerW
+	m.scheduleInput.Width = d.msgInnerW
 	if m.activeChannelID == "" {
 		m.viewport.SetContent("\n  Pick a channel on the left and press enter to open it.")
 	}
@@ -444,6 +520,70 @@ func (m Model) editCmd(channelID, postID, text string) tea.Cmd {
 			return errMsg{err}
 		}
 		return sentMsg{channelID: channelID}
+	}
+}
+
+// scheduleCmd stores a message for later delivery. Delivery happens in the
+// scheduleTick loop while the TUI runs.
+func (m Model) scheduleCmd(channelID, label, text string, at time.Time) tea.Cmd {
+	return func() tea.Msg {
+		store, err := schedule.Load()
+		if err != nil {
+			return scheduledMsg{err: err}
+		}
+		if _, err := store.Add(channelID, label, text, at); err != nil {
+			return scheduledMsg{err: err}
+		}
+		if err := store.Save(); err != nil {
+			return scheduledMsg{err: err}
+		}
+		return scheduledMsg{when: at.Format("2006-01-02 15:04")}
+	}
+}
+
+func scheduleTickCmd() tea.Cmd {
+	return tea.Tick(scheduleInterval*time.Second, func(time.Time) tea.Msg {
+		return scheduleTickMsg{}
+	})
+}
+
+// deliverDueCmds loads the store and returns a delivery command for each due
+// item not already in flight, marking them so they aren't dispatched twice.
+func (m *Model) deliverDueCmds() []tea.Cmd {
+	store, err := schedule.Load()
+	if err != nil {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for _, it := range store.Due(time.Now()) {
+		if m.deliveringIDs[it.ID] {
+			continue
+		}
+		m.deliveringIDs[it.ID] = true
+		cmds = append(cmds, m.deliverScheduledCmd(it))
+	}
+	return cmds
+}
+
+func (m Model) deliverScheduledCmd(it schedule.Item) tea.Cmd {
+	return func() tea.Msg {
+		err := error(nil)
+		if _, e := m.mm.SendToChannelID(m.ctx, it.ChannelID, it.Message); e != nil {
+			err = e
+		}
+		return scheduledDeliveredMsg{id: it.ID, label: it.Label, channelID: it.ChannelID, err: err}
+	}
+}
+
+func removeScheduledCmd(id string) tea.Cmd {
+	return func() tea.Msg {
+		store, err := schedule.Load()
+		if err != nil {
+			return nil
+		}
+		_ = store.Remove(id)
+		_ = store.Save()
+		return nil
 	}
 }
 
