@@ -134,6 +134,10 @@ TUI extras that stay leveled with the other surfaces:
   web/mobile. The sidebar reloads on the schedule tick (selection preserved).
 - **Scheduled-messages viewer**: `s` from the sidebar lists pending scheduled
   messages from `internal/schedule`; `x` cancels the selected one.
+- **Scroll & copy**: the message pane preserves scroll position across polling
+  reloads (only `GotoBottom` when already at bottom). `y` opens a copy picker
+  that writes a message's Markdown source to the clipboard via
+  `github.com/atotto/clipboard` (xclip/xsel/wl-copy backends).
 - **Schedule** the composed message with `ctrl+t` (same store as `mm schedule` /
   `schedule_message`). This server has no scheduled-posts license, so delivery
   is **client-side**: the TUI's delivery loop (`scheduleTickCmd`) sends due

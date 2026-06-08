@@ -17,7 +17,13 @@ type postsLoadedMsg struct {
 	channelID string
 	markdown  string
 	count     int
-	ownPosts  []ownPost // current user's posts, newest-first (for up-arrow editing)
+	ownPosts  []ownPost  // current user's posts, newest-first (for up-arrow editing)
+	posts     []postLine // all displayed posts, chronological (for the copy picker)
+}
+
+// copiedMsg reports the result of copying a message to the clipboard.
+type copiedMsg struct {
+	err error
 }
 
 type errMsg struct {

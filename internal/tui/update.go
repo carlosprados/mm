@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,6 +24,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch {
+		case m.copyMode:
+			return m.handleCopyKey(msg)
 		case m.scheduleViewMode:
 			return m.handleScheduleViewKey(msg)
 		case m.aliasMode:
@@ -62,8 +65,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			rendered = msg.markdown
 		}
+		// Preserve the reader's scroll position across polling reloads: only jump
+		// to the bottom if they were already there.
+		atBottom := m.viewport.AtBottom()
 		m.viewport.SetContent(rendered)
-		m.viewport.GotoBottom()
+		if atBottom {
+			m.viewport.GotoBottom()
+		}
+		m.posts = msg.posts
 		// Don't shift the edit history out from under an in-progress edit.
 		if !m.editing {
 			m.ownPosts = msg.ownPosts
@@ -82,6 +91,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "schedule error: " + msg.err.Error()
 		} else {
 			m.status = "scheduled for " + msg.when
+		}
+		return m, nil
+
+	case copiedMsg:
+		if msg.err != nil {
+			m.status = "copy failed: " + msg.err.Error()
+		} else {
+			m.status = "copied to clipboard"
 		}
 		return m, nil
 
@@ -206,6 +223,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadPostsCmd(m.activeChannelID)
 		}
 		return m, m.loadChannelsCmd()
+
+	// Open the copy picker from the messages pane.
+	case msg.String() == "y" && m.focus == focusMessages && len(m.posts) > 0:
+		m.copyMode = true
+		m.copyCursor = len(m.posts) - 1 // default to the most recent message
+		m.status = "copy a message"
+		return m, nil
 
 	// Open the scheduled-messages viewer from the sidebar.
 	case msg.String() == "s" && m.focus == focusSidebar && !filtering:
@@ -443,6 +467,45 @@ func (m Model) handleScheduleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) idleForReload() bool {
 	return m.list.FilterState() != list.Filtering &&
 		!m.aliasMode && !m.scheduleMode && !m.scheduleViewMode
+}
+
+// handleCopyKey drives the message copy picker; enter/y copies the selected
+// message's Markdown source to the system clipboard.
+func (m Model) handleCopyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc", "q":
+		m.copyMode = false
+		return m, nil
+	case "down", "j":
+		if m.copyCursor < len(m.posts)-1 {
+			m.copyCursor++
+		}
+		return m, nil
+	case "up", "k":
+		if m.copyCursor > 0 {
+			m.copyCursor--
+		}
+		return m, nil
+	case "enter", "y":
+		if m.copyCursor < 0 || m.copyCursor >= len(m.posts) {
+			return m, nil
+		}
+		text := m.posts[m.copyCursor].message
+		m.copyMode = false
+		return m, copyCmd(text)
+	}
+	return m, nil
+}
+
+func copyCmd(text string) tea.Cmd {
+	return func() tea.Msg {
+		if err := clipboard.WriteAll(text); err != nil {
+			return copiedMsg{err: err}
+		}
+		return copiedMsg{}
+	}
 }
 
 // handleScheduleViewKey drives the in-TUI scheduled-messages viewer.
@@ -759,10 +822,12 @@ func (m Model) loadPostsCmd(channelID string) tea.Cmd {
 		}
 
 		var b strings.Builder
+		var lines []postLine
 		for i := len(posts.Order) - 1; i >= 0; i-- {
 			p := posts.Posts[posts.Order[i]]
 			ts := time.UnixMilli(p.CreateAt).Format("15:04")
 			fmt.Fprintf(&b, "**%s · %s**\n\n%s\n\n---\n\n", ts, usernames[p.UserId], p.Message)
+			lines = append(lines, postLine{time: ts, author: usernames[p.UserId], message: p.Message})
 		}
 
 		// posts.Order is newest-first, so this collects own posts newest-first too.
@@ -773,7 +838,7 @@ func (m Model) loadPostsCmd(channelID string) tea.Cmd {
 			}
 		}
 
-		return postsLoadedMsg{channelID: channelID, markdown: b.String(), count: len(posts.Order), ownPosts: own}
+		return postsLoadedMsg{channelID: channelID, markdown: b.String(), count: len(posts.Order), ownPosts: own, posts: lines}
 	}
 }
 
