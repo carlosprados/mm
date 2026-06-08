@@ -105,3 +105,27 @@ func (mm *MM) EditPost(ctx context.Context, postID, message string) error {
 // Scheduling is implemented client-side in internal/schedule (this server has
 // no scheduled-posts license). The shared delivery primitive is SendToChannelID
 // above; the TUI's delivery loop calls it when a scheduled item is due.
+
+// ChannelMembers returns the current user's membership for each channel in the
+// team (including DMs), keyed by channel ID. Used to compute unread state.
+func (mm *MM) ChannelMembers(ctx context.Context) (map[string]*model.ChannelMember, error) {
+	members, _, err := mm.Client.GetChannelMembersForUser(ctx, mm.UserID, mm.TeamID, "")
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch channel members: %w", err)
+	}
+	out := make(map[string]*model.ChannelMember, len(members))
+	for i := range members {
+		out[members[i].ChannelId] = &members[i]
+	}
+	return out, nil
+}
+
+// MarkChannelRead marks a channel as read for the current user (server-side, so
+// it also clears the unread state on the web/mobile clients).
+func (mm *MM) MarkChannelRead(ctx context.Context, channelID string) error {
+	_, _, err := mm.Client.ViewChannel(ctx, mm.UserID, &model.ChannelView{ChannelId: channelID})
+	if err != nil {
+		return fmt.Errorf("could not mark channel read: %w", err)
+	}
+	return nil
+}

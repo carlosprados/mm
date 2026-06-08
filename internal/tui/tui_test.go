@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -128,6 +129,39 @@ func TestUpArrowEditWalk(t *testing.T) {
 	m = m.historyNewer()
 	if m.editing || m.composer.Value() != "draft" {
 		t.Errorf("past newest should restore draft: editing=%v val=%q", m.editing, m.composer.Value())
+	}
+}
+
+// TestChannelLess checks sidebar prioritization: unread first (recent on top),
+// then channels, then DMs alphabetically.
+func TestChannelLess(t *testing.T) {
+	unreadOld := channelItem{name: "a", typ: "public", unread: true, lastPostAt: 100}
+	unreadNew := channelItem{name: "z", typ: "dm", unread: true, lastPostAt: 200}
+	readChan := channelItem{name: "dev", typ: "public"}
+	readDM := channelItem{name: "@luis", typ: "dm"}
+
+	// Unread before read.
+	if !channelLess(unreadOld, readChan) {
+		t.Error("unread should sort before read")
+	}
+	// Among unread, more recent first.
+	if !channelLess(unreadNew, unreadOld) {
+		t.Error("more recent unread should sort first")
+	}
+	// Among read, channels before DMs.
+	if !channelLess(readChan, readDM) {
+		t.Error("read channel should sort before read DM")
+	}
+
+	items := []channelItem{readDM, unreadOld, readChan, unreadNew}
+	sort.SliceStable(items, func(i, j int) bool { return channelLess(items[i], items[j]) })
+	order := []string{items[0].name, items[1].name, items[2].name, items[3].name}
+	want := []string{"z", "a", "dev", "@luis"} // unreadNew, unreadOld, readChan, readDM
+	for i := range want {
+		if order[i] != want[i] {
+			t.Errorf("order = %v, want %v", order, want)
+			break
+		}
 	}
 }
 

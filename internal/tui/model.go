@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -12,6 +13,7 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/carlosprados/mm/internal/client"
+	"github.com/carlosprados/mm/internal/schedule"
 )
 
 type focusArea int
@@ -64,6 +66,12 @@ type Model struct {
 	// loop doesn't dispatch the same item twice.
 	deliveringIDs map[string]bool
 
+	// scheduleView is the in-TUI list of pending scheduled messages (toggled
+	// with 's' from the sidebar).
+	scheduleViewMode   bool
+	scheduleView       []schedule.Item
+	scheduleViewCursor int
+
 	focus  focusArea
 	width  int
 	height int
@@ -92,14 +100,29 @@ type ownPost struct {
 
 // channelItem adapts a Mattermost channel to bubbles/list.Item.
 type channelItem struct {
-	id       string
-	name     string
-	desc     string // shown under the title (handle for DMs, type for channels)
-	typ      string // "public"/"private"/"group"/"dm" — drives sorting
-	username string // bare username for DMs (empty for channels), used to set aliases
+	id         string
+	name       string
+	desc       string // shown under the title (handle for DMs, type for channels)
+	typ        string // "public"/"private"/"group"/"dm" — drives sorting
+	username   string // bare username for DMs (empty for channels), used to set aliases
+	unread     bool   // there are messages the user hasn't read
+	mentions   int    // unread @-mentions
+	lastPostAt int64  // for ordering unread items by recency
 }
 
-func (c channelItem) Title() string       { return c.name }
+// Title renders an unread bullet and mention count, keeping `name` clean for
+// sorting and filtering.
+func (c channelItem) Title() string {
+	if c.unread {
+		t := "● " + c.name
+		if c.mentions > 0 {
+			t += fmt.Sprintf(" (%d)", c.mentions)
+		}
+		return t
+	}
+	return "  " + c.name
+}
+
 func (c channelItem) Description() string  { return c.desc }
 func (c channelItem) FilterValue() string { return c.name + " " + c.desc }
 

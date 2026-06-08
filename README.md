@@ -275,18 +275,24 @@ Markdown-rendered message pane and a composer on the right. DMs are labelled by
 the colleague's alias when one is configured. Same auth as the CLI; the active
 channel is refreshed by polling.
 
+**Unread first.** The sidebar prioritizes channels/DMs with messages you
+haven't read: they sort to the top (most recent first) with a `●` bullet and an
+`(N)` mention count. Opening a channel marks it read (server-side, so it also
+clears on web/mobile). The list refreshes itself periodically.
+
 | Key             | Action                                                       |
 |-----------------|--------------------------------------------------------------|
 | `tab`           | Cycle focus: sidebar → messages → composer                   |
 | `j` / `k`       | Move within the focused pane                                 |
 | `/`             | Filter the sidebar (matches alias and @handle)               |
-| `enter`         | Open the selected channel (focus jumps to the composer)      |
+| `enter`         | Open the selected channel (marks it read; focus → composer)  |
 | `a`             | On a selected DM: assign an alias to that colleague          |
+| `s`             | Open the scheduled-messages viewer (then `x` cancels one)    |
 | `ctrl+s`        | Send the composed message                                    |
 | `ctrl+t`        | Schedule the composed message (prompts for a delivery time)  |
 | `:` + text      | Emoji picker — fuzzy search, `↑`/`↓` to choose, `enter`/`tab` to insert |
 | `↑` / `↓`       | In the composer: walk back/forward through **your** messages to edit them; `↓` past the newest restores your draft |
-| `esc`           | Close the emoji picker / cancel an edit (restores the draft) / back to sidebar |
+| `esc`           | Close the picker/viewer / cancel an edit (restores the draft) / back to sidebar |
 | `r`             | Refresh                                                      |
 | `q` / `ctrl+c`  | Quit (`ctrl+c` always; `q` is text while composing/filtering)|
 

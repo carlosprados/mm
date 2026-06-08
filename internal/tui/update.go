@@ -23,6 +23,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch {
+		case m.scheduleViewMode:
+			return m.handleScheduleViewKey(msg)
 		case m.aliasMode:
 			return m.handleAliasKey(msg)
 		case m.scheduleMode:
@@ -32,9 +34,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case channelsLoadedMsg:
+		// Preserve the selected channel across reloads (the sort may reorder).
+		var selID string
+		if it, ok := m.list.SelectedItem().(channelItem); ok {
+			selID = it.id
+		}
 		m.list.SetItems(msg.items)
-		m.status = fmt.Sprintf("%d channels", len(msg.items))
+		if selID != "" {
+			for i, li := range msg.items {
+				if ci, ok := li.(channelItem); ok && ci.id == selID {
+					m.list.Select(i)
+					break
+				}
+			}
+		}
 		return m, nil
+
+	case channelsReloadMsg:
+		return m, m.loadChannelsCmd()
 
 	case postsLoadedMsg:
 		// Ignore stale loads from a channel we've since navigated away from.
@@ -69,7 +86,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case scheduleTickMsg:
-		return m, tea.Batch(append(m.deliverDueCmds(), scheduleTickCmd())...)
+		cmds := append(m.deliverDueCmds(), scheduleTickCmd())
+		if m.idleForReload() {
+			cmds = append(cmds, m.loadChannelsCmd()) // refresh unread state
+		}
+		return m, tea.Batch(cmds...)
 
 	case scheduledDeliveredMsg:
 		delete(m.deliveringIDs, msg.id)
@@ -186,6 +207,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadChannelsCmd()
 
+	// Open the scheduled-messages viewer from the sidebar.
+	case msg.String() == "s" && m.focus == focusSidebar && !filtering:
+		store, _ := schedule.Load()
+		m.scheduleView = store.Sorted()
+		m.scheduleViewCursor = 0
+		m.scheduleViewMode = true
+		m.status = "scheduled messages"
+		return m, nil
+
 	case key.Matches(msg, m.keys.Enter) && m.focus == focusSidebar && !filtering:
 		if it, ok := m.list.SelectedItem().(channelItem); ok {
 			m.activeChannelID = it.id
@@ -195,7 +225,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.exitEdit(false)
 			m.composer.Reset()
 			cmd := m.setFocus(focusComposer)
-			return m, tea.Batch(cmd, m.loadPostsCmd(it.id))
+			// Mark read (clears unread everywhere) and refresh the sidebar.
+			return m, tea.Batch(cmd, m.loadPostsCmd(it.id), m.markReadCmd(it.id))
 		}
 		return m, nil
 	}
@@ -407,6 +438,66 @@ func (m Model) handleScheduleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// idleForReload reports whether a background sidebar reload is safe (no input
+// mode or filter that a reordering would disrupt).
+func (m Model) idleForReload() bool {
+	return m.list.FilterState() != list.Filtering &&
+		!m.aliasMode && !m.scheduleMode && !m.scheduleViewMode
+}
+
+// handleScheduleViewKey drives the in-TUI scheduled-messages viewer.
+func (m Model) handleScheduleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc", "q":
+		m.scheduleViewMode = false
+		return m, nil
+	case "down", "j":
+		if m.scheduleViewCursor < len(m.scheduleView)-1 {
+			m.scheduleViewCursor++
+		}
+		return m, nil
+	case "up", "k":
+		if m.scheduleViewCursor > 0 {
+			m.scheduleViewCursor--
+		}
+		return m, nil
+	case "x", "d":
+		if m.scheduleViewCursor >= len(m.scheduleView) {
+			return m, nil
+		}
+		id := m.scheduleView[m.scheduleViewCursor].ID
+		store, err := schedule.Load()
+		if err == nil {
+			if err = store.Remove(id); err == nil {
+				err = store.Save()
+			}
+		}
+		if err != nil {
+			m.status = "cancel error: " + err.Error()
+			return m, nil
+		}
+		// Reload the view from disk and clamp the cursor.
+		if store, err = schedule.Load(); err == nil {
+			m.scheduleView = store.Sorted()
+		}
+		if m.scheduleViewCursor >= len(m.scheduleView) && m.scheduleViewCursor > 0 {
+			m.scheduleViewCursor--
+		}
+		m.status = "scheduled message cancelled"
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) markReadCmd(channelID string) tea.Cmd {
+	return func() tea.Msg {
+		_ = m.mm.MarkChannelRead(m.ctx, channelID)
+		return channelsReloadMsg{}
+	}
+}
+
 func saveAlias(name, username string) error {
 	store, err := alias.Load()
 	if err != nil {
@@ -612,6 +703,9 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 		// Alias store lets DMs show "luis" instead of "@luisdavid.francisco".
 		aliases, _ := alias.Load()
 
+		// Per-channel read state for unread prioritization (best-effort).
+		members, _ := m.mm.ChannelMembers(m.ctx)
+
 		items := make([]channelItem, 0, len(chans))
 		for _, ch := range chans {
 			typ := channelTypeLabel(ch.Type)
@@ -627,17 +721,18 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 				}
 				desc = "# " + typ
 			}
-			items = append(items, channelItem{id: ch.Id, name: name, desc: desc, typ: typ, username: username})
+
+			it := channelItem{id: ch.Id, name: name, desc: desc, typ: typ, username: username, lastPostAt: ch.LastPostAt}
+			if mbr := members[ch.Id]; mbr != nil {
+				it.unread = ch.LastPostAt > mbr.LastViewedAt
+				it.mentions = int(mbr.MentionCount)
+			}
+			items = append(items, it)
 		}
 
-		// Named channels first, DMs after; alphabetical within each group.
-		sort.SliceStable(items, func(i, j int) bool {
-			di, dj := items[i].typ == "dm", items[j].typ == "dm"
-			if di != dj {
-				return !di
-			}
-			return strings.ToLower(items[i].name) < strings.ToLower(items[j].name)
-		})
+		// Unread first (most recent activity on top), then named channels, then
+		// DMs; alphabetical within the read groups.
+		sort.SliceStable(items, func(i, j int) bool { return channelLess(items[i], items[j]) })
 
 		listItems := make([]list.Item, len(items))
 		for i, it := range items {
@@ -680,6 +775,21 @@ func (m Model) loadPostsCmd(channelID string) tea.Cmd {
 
 		return postsLoadedMsg{channelID: channelID, markdown: b.String(), count: len(posts.Order), ownPosts: own}
 	}
+}
+
+// channelLess orders the sidebar: unread first (most recent activity on top),
+// then named channels, then DMs, alphabetical within the read groups.
+func channelLess(a, b channelItem) bool {
+	if a.unread != b.unread {
+		return a.unread
+	}
+	if a.unread {
+		return a.lastPostAt > b.lastPostAt
+	}
+	if da, db := a.typ == "dm", b.typ == "dm"; da != db {
+		return !da
+	}
+	return strings.ToLower(a.name) < strings.ToLower(b.name)
 }
 
 // dmLabel returns the sidebar title and subtitle for a DM. When an alias points
