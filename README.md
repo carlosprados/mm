@@ -191,12 +191,28 @@ Output is oldest → newest:
 | Flag              | Description                                                |
 |-------------------|------------------------------------------------------------|
 | `-c, --channel`   | Target channel name. Mutually exclusive with `--user`.     |
-| `-u, --user`      | Target username for a DM. Mutually exclusive with `--channel`. |
+| `-u, --user`      | Target username **or alias** for a DM. Mutually exclusive with `--channel`. |
 | `-m, --message`   | **Required.** Message body.                                |
 
 ```bash
 mm send -c dev-backend -m "Deploy listo, revisa logs"
 mm send -u juan.garcia  -m "¿Tienes un momento?"
+mm send -u luis         -m "¿Tienes un momento?"   # luis is an alias
+```
+
+### `mm alias` — short handles for colleagues
+
+Map a short handle to a canonical username so you can DM `luisdavid.francisco`
+by typing `luis` (or `luisete`). Several aliases may point to the same user.
+Aliases are resolved by `mm send -u`, by the TUI and by the MCP `send_message`
+tool. They are stored in `$XDG_CONFIG_HOME/mm/aliases.json` (mode `0644`, no
+secrets).
+
+```bash
+mm alias add luis luisdavid.francisco
+mm alias add luisete luisdavid.francisco
+mm alias list
+mm alias rm luisete
 ```
 
 ### Other commands
@@ -280,6 +296,7 @@ npx @modelcontextprotocol/inspector mm mcp
 | `mm users`       | `list_users`   | `mm://team/users`                           | —                                                         |
 | `mm read`        | `read_channel` | `mm://channel/{name}/messages?limit={n}`    | feeds `summarize_channel`, `draft_reply`, `daily_digest`  |
 | `mm send`        | `send_message` | —                                           | —                                                         |
+| `mm alias`       | `manage_alias` | —                                           | —                                                         |
 | `mm whoami`      | `whoami`       | —                                           | —                                                         |
 | `mm login/logout`| _host-side only_ — MCP reuses the saved session | — | —                                                |
 

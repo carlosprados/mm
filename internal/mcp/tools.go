@@ -3,11 +3,14 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/carlosprados/mm/internal/alias"
 )
 
 // Input/output structs are exported so the MCP SDK can derive a JSON schema
@@ -61,6 +64,22 @@ type sendMessageOut struct {
 	OK        bool   `json:"ok"`
 	ChannelID string `json:"channel_id"`
 	PostID    string `json:"post_id"`
+}
+
+type manageAliasIn struct {
+	Action   string `json:"action" jsonschema:"one of: list, add, remove"`
+	Alias    string `json:"alias,omitempty" jsonschema:"the short handle (required for add/remove)"`
+	Username string `json:"username,omitempty" jsonschema:"canonical username the alias maps to (required for add)"`
+}
+
+type aliasEntry struct {
+	Alias    string `json:"alias"`
+	Username string `json:"username"`
+}
+
+type manageAliasOut struct {
+	OK      bool         `json:"ok"`
+	Aliases []aliasEntry `json:"aliases"`
 }
 
 type whoamiIn struct{}
@@ -136,7 +155,7 @@ func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.srv,
 		&mcpsdk.Tool{
 			Name:        "send_message",
-			Description: "Send a message to a channel or as a direct message to a user. Side effect: creates a post. Provide either channel or user, never both.",
+			Description: "Send a message to a channel or as a direct message to a user. The user field accepts either a canonical username or a configured alias. Side effect: creates a post. Provide either channel or user, never both.",
 		},
 		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in sendMessageIn) (*mcpsdk.CallToolResult, sendMessageOut, error) {
 			if in.Message == "" {
@@ -148,7 +167,11 @@ func (s *Server) registerTools() {
 
 			var channelID string
 			if in.User != "" {
-				user, _, err := s.mm.Client.GetUserByUsername(ctx, in.User, "")
+				store, err := alias.Load()
+				if err != nil {
+					return nil, sendMessageOut{}, err
+				}
+				user, _, err := s.mm.Client.GetUserByUsername(ctx, store.Resolve(in.User), "")
 				if err != nil {
 					return nil, sendMessageOut{}, fmt.Errorf("user not found: %w", err)
 				}
@@ -169,6 +192,50 @@ func (s *Server) registerTools() {
 				return nil, sendMessageOut{}, fmt.Errorf("could not send message: %w", err)
 			}
 			return nil, sendMessageOut{OK: true, ChannelID: channelID, PostID: post.Id}, nil
+		},
+	)
+
+	mcpsdk.AddTool(s.srv,
+		&mcpsdk.Tool{
+			Name:        "manage_alias",
+			Description: "List, add or remove username aliases. Side effect (add/remove): persists the aliases file. Aliases let send_message target a user by a short handle.",
+		},
+		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in manageAliasIn) (*mcpsdk.CallToolResult, manageAliasOut, error) {
+			store, err := alias.Load()
+			if err != nil {
+				return nil, manageAliasOut{}, err
+			}
+			switch in.Action {
+			case "add":
+				if err := store.Add(in.Alias, in.Username); err != nil {
+					return nil, manageAliasOut{}, err
+				}
+				if err := store.Save(); err != nil {
+					return nil, manageAliasOut{}, err
+				}
+			case "remove":
+				if err := store.Remove(in.Alias); err != nil {
+					return nil, manageAliasOut{}, err
+				}
+				if err := store.Save(); err != nil {
+					return nil, manageAliasOut{}, err
+				}
+			case "list", "":
+				// no-op, fall through to return current state
+			default:
+				return nil, manageAliasOut{}, fmt.Errorf("unknown action %q (use list, add or remove)", in.Action)
+			}
+
+			out := manageAliasOut{OK: true, Aliases: make([]aliasEntry, 0, len(store.Aliases))}
+			names := make([]string, 0, len(store.Aliases))
+			for a := range store.Aliases {
+				names = append(names, a)
+			}
+			sort.Strings(names)
+			for _, a := range names {
+				out.Aliases = append(out.Aliases, aliasEntry{Alias: a, Username: store.Aliases[a]})
+			}
+			return nil, out, nil
 		},
 	)
 

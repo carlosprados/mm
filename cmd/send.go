@@ -5,6 +5,8 @@ import (
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/spf13/cobra"
+
+	"github.com/carlosprados/mm/internal/alias"
 	"github.com/carlosprados/mm/internal/client"
 )
 
@@ -27,8 +29,13 @@ var sendCmd = &cobra.Command{
 		var channelID string
 
 		if sendUser != "" {
-			// DM: resolve username → userID → DM channel
-			user, _, err := mm.Client.GetUserByUsername(ctx, sendUser, "")
+			// DM: resolve alias → username → userID → DM channel
+			store, err := alias.Load()
+			if err != nil {
+				return err
+			}
+			username := store.Resolve(sendUser)
+			user, _, err := mm.Client.GetUserByUsername(ctx, username, "")
 			if err != nil {
 				return fmt.Errorf("user not found: %w", err)
 			}
