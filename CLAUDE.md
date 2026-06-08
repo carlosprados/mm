@@ -80,6 +80,7 @@ mm/
 │   ├── logout.go      — `mm logout`
 │   ├── whoami.go      — `mm whoami`
 │   ├── mcp.go         — `mm mcp` → MCP server on stdio
+│   ├── tui.go         — `mm tui` → interactive terminal UI (Bubble Tea)
 │   └── version.go     — `mm version`
 └── internal/
     ├── alias/
@@ -88,12 +89,27 @@ mm/
     │   └── mattermost.go  — MM struct, New(), env+config precedence
     ├── config/
     │   └── config.go      — XDG-aware credential persistence (0600)
-    └── mcp/
-        ├── server.go      — wires up tools/resources/prompts
-        ├── tools.go       — 6 tools
-        ├── resources.go   — 3 resources (1 fixed + 2 templated)
-        └── prompts.go     — 3 prompts
+    ├── mcp/
+    │   ├── server.go      — wires up tools/resources/prompts
+    │   ├── tools.go       — 6 tools
+    │   ├── resources.go   — 3 resources (1 fixed + 2 templated)
+    │   └── prompts.go     — 3 prompts
+    └── tui/               — interactive terminal UI (Bubble Tea)
+        ├── model.go       — root model, focus, channelItem
+        ├── update.go      — Update loop + async tea.Cmds (polling)
+        ├── view.go        — lipgloss layout (sidebar + message pane + footer)
+        ├── keys.go        — app-level keymap
+        ├── messages.go    — tea.Msg types
+        └── styles.go      — lipgloss styles
 ```
+
+## TUI (`mm tui`)
+
+A third surface alongside the CLI and MCP, built on Bubble Tea + bubbles +
+lipgloss, with Markdown rendered by glamour. It reuses `client.MM` and the
+shared messaging service; it does **not** introduce its own Mattermost logic.
+Auth is host-side (saved session / env), like `mm mcp`, so it has no MCP
+counterpart. Active channel is refreshed by polling (no WebSocket yet).
 
 ## Conventions
 
