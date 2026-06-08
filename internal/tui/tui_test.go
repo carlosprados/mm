@@ -1,12 +1,15 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/carlosprados/mm/internal/alias"
 )
 
 func newTestModel() Model {
@@ -125,6 +128,88 @@ func TestUpArrowEditWalk(t *testing.T) {
 	m = m.historyNewer()
 	if m.editing || m.composer.Value() != "draft" {
 		t.Errorf("past newest should restore draft: editing=%v val=%q", m.editing, m.composer.Value())
+	}
+}
+
+// TestDMLabel checks alias-aware DM labelling for the sidebar.
+func TestDMLabel(t *testing.T) {
+	store := &alias.Store{Aliases: map[string]string{"luis": "luisdavid.francisco"}}
+
+	title, desc := dmLabel("luisdavid.francisco", store)
+	if title != "luis" || desc != "@luisdavid.francisco" {
+		t.Errorf("aliased DM: got (%q, %q)", title, desc)
+	}
+
+	title, desc = dmLabel("marta.gomez", store)
+	if title != "@marta.gomez" || desc != "dm" {
+		t.Errorf("plain DM: got (%q, %q)", title, desc)
+	}
+
+	title, _ = dmLabel("someone", nil)
+	if title != "@someone" {
+		t.Errorf("nil store: got %q", title)
+	}
+}
+
+// TestActiveEmojiQuery checks the trigger heuristic.
+func TestActiveEmojiQuery(t *testing.T) {
+	cases := map[string]string{
+		"hello :sm":    "sm",
+		"see :smile":   "smile",
+		"x\n:gr":       "gr",
+		"hi":           "",    // no colon
+		"10:30":        "",    // colon not at a word boundary
+		":a":           "",    // too short (<2)
+		"done :smile ": "",    // trailing space closes the token
+		":SMI":         "smi", // lowercased
+	}
+	for in, want := range cases {
+		if got := activeEmojiQuery(in); got != want {
+			t.Errorf("activeEmojiQuery(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestSearchEmoji checks matching and the result cap.
+func TestSearchEmoji(t *testing.T) {
+	res := searchEmoji("smile")
+	if len(res) == 0 {
+		t.Fatal("expected matches for 'smile'")
+	}
+	if len(res) > maxEmojiResults {
+		t.Errorf("results not capped: %d", len(res))
+	}
+	if !strings.HasPrefix(res[0].short, "smile") {
+		t.Errorf("prefix match should rank first, got %q", res[0].short)
+	}
+	for _, e := range res {
+		if !strings.Contains(e.short, "smile") {
+			t.Errorf("unexpected match %q", e.short)
+		}
+	}
+}
+
+// TestAcceptEmoji replaces the trailing token with the chosen glyph.
+func TestAcceptEmoji(t *testing.T) {
+	m := newTestModel()
+	m.focus = focusComposer
+	m.composer.SetValue("hello :smi")
+	m.refreshEmoji()
+	if !m.emojiActive {
+		t.Fatal("picker should be active for ':smi'")
+	}
+	glyph := m.emojiMatches[m.emojiIndex].glyph
+	m.acceptEmoji()
+
+	got := m.composer.Value()
+	if strings.Contains(got, ":smi") {
+		t.Errorf("query not removed: %q", got)
+	}
+	if !strings.HasPrefix(got, "hello ") || !strings.Contains(got, glyph) {
+		t.Errorf("glyph not inserted: %q", got)
+	}
+	if m.emojiActive {
+		t.Error("picker should close after accept")
 	}
 }
 

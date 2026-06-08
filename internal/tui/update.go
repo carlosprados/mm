@@ -11,6 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/mattermost/mattermost/server/public/model"
+
+	"github.com/carlosprados/mm/internal/alias"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -19,6 +21,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.resize(msg.Width, msg.Height), nil
 
 	case tea.KeyMsg:
+		if m.aliasMode {
+			return m.handleAliasKey(msg)
+		}
 		return m.handleKey(msg)
 
 	case channelsLoadedMsg:
@@ -79,8 +84,37 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	composerEmpty := strings.TrimSpace(m.composer.Value()) == ""
 
 	switch {
+	// --- Emoji picker takes priority over everything below while open ---
+	case m.emojiActive && msg.String() == "up":
+		if m.emojiIndex > 0 {
+			m.emojiIndex--
+		}
+		return m, nil
+	case m.emojiActive && msg.String() == "down":
+		if m.emojiIndex < len(m.emojiMatches)-1 {
+			m.emojiIndex++
+		}
+		return m, nil
+	case m.emojiActive && (msg.String() == "enter" || msg.String() == "tab"):
+		m.acceptEmoji()
+		return m.applyLayout(), nil
+	case m.emojiActive && msg.String() == "esc":
+		m.closeEmoji()
+		return m.applyLayout(), nil
+
 	case key.Matches(msg, m.keys.Send):
 		return m.sendMessage()
+
+	// Press 'a' on a selected DM to assign it an alias.
+	case msg.String() == "a" && m.focus == focusSidebar && !filtering:
+		if it, ok := m.list.SelectedItem().(channelItem); ok && it.username != "" {
+			m.aliasMode = true
+			m.aliasUser = it.username
+			m.aliasInput.SetValue("")
+			m.aliasInput.Focus()
+			m.status = "alias for @" + it.username
+		}
+		return m, nil
 
 	// Esc while editing cancels the edit and restores the draft, staying put.
 	case msg.String() == "esc" && m.editing:
@@ -216,45 +250,140 @@ func (m Model) delegateToFocused(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport, cmd = m.viewport.Update(msg)
 	case focusComposer:
 		m.composer, cmd = m.composer.Update(msg)
+		m.refreshEmoji()
+		m = m.applyLayout() // popup may have opened/closed → resize the message pane
 	}
 	return m, cmd
 }
 
+// refreshEmoji recomputes the picker state from the composer's trailing token.
+func (m *Model) refreshEmoji() {
+	if m.focus != focusComposer {
+		m.closeEmoji()
+		return
+	}
+	q := activeEmojiQuery(m.composer.Value())
+	if q == "" {
+		m.closeEmoji()
+		return
+	}
+	matches := searchEmoji(q)
+	if len(matches) == 0 {
+		m.closeEmoji()
+		return
+	}
+	if q != m.emojiQuery {
+		m.emojiIndex = 0
+	}
+	m.emojiQuery = q
+	m.emojiMatches = matches
+	m.emojiActive = true
+}
+
+func (m *Model) closeEmoji() {
+	m.emojiActive = false
+	m.emojiMatches = nil
+	m.emojiQuery = ""
+	m.emojiIndex = 0
+}
+
+// acceptEmoji replaces the trailing ":query" with the selected glyph.
+func (m *Model) acceptEmoji() {
+	if !m.emojiActive || len(m.emojiMatches) == 0 {
+		return
+	}
+	e := m.emojiMatches[m.emojiIndex]
+	val := m.composer.Value()
+	cut := len(val) - len(m.emojiQuery) - 1 // drop ":" + query
+	if cut < 0 {
+		cut = 0
+	}
+	m.composer.SetValue(val[:cut] + e.glyph + " ")
+	m.closeEmoji()
+}
+
+// handleAliasKey captures text for the alias being assigned to a DM's user.
+func (m Model) handleAliasKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "enter":
+		text := strings.TrimSpace(m.aliasInput.Value())
+		if text != "" {
+			err := saveAlias(text, m.aliasUser)
+			if err != nil {
+				m.status = "alias error: " + err.Error()
+			} else {
+				m.status = "alias " + text + " → @" + m.aliasUser + " saved"
+			}
+		}
+		m.aliasMode = false
+		m.aliasInput.Blur()
+		return m, m.loadChannelsCmd() // relabel the sidebar
+	case "esc":
+		m.aliasMode = false
+		m.aliasInput.Blur()
+		m.status = "alias cancelled"
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.aliasInput, cmd = m.aliasInput.Update(msg)
+		return m, cmd
+	}
+}
+
+func saveAlias(name, username string) error {
+	store, err := alias.Load()
+	if err != nil {
+		return err
+	}
+	if err := store.Add(name, username); err != nil {
+		return err
+	}
+	return store.Save()
+}
+
 func (m Model) resize(w, h int) Model {
 	m.width, m.height = w, h
-
-	d := m.layout()
-
-	m.list.SetSize(d.sidebarInnerW, d.sidebarInnerH)
-	m.viewport.Width = d.msgInnerW
-	m.viewport.Height = d.messagesInnerH
-	m.composer.SetWidth(d.msgInnerW)
-	m.composer.SetHeight(composerLines)
-	if m.activeChannelID == "" {
-		m.viewport.SetContent("\n  Pick a channel on the left and press enter to open it.")
-	}
 
 	// Re-create the renderer so Markdown wraps to the new message width. Use the
 	// style resolved at startup — never WithAutoStyle here, as it would query the
 	// TTY and deadlock against Bubble Tea's input reader.
 	if r, err := glamour.NewTermRenderer(
 		glamour.WithStandardStyle(m.styleName),
-		glamour.WithWordWrap(d.msgInnerW),
+		glamour.WithWordWrap(m.layout().msgInnerW),
 	); err == nil {
 		m.renderer = r
 	}
 
 	m.ready = true
+	return m.applyLayout()
+}
+
+// applyLayout pushes the current geometry into the sub-components. It is cheap
+// and runs whenever the layout changes (resize, emoji popup open/close).
+func (m Model) applyLayout() Model {
+	d := m.layout()
+	m.list.SetSize(d.sidebarInnerW, d.sidebarInnerH)
+	m.viewport.Width = d.msgInnerW
+	m.viewport.Height = d.messagesInnerH
+	m.composer.SetWidth(d.msgInnerW)
+	m.composer.SetHeight(composerLines)
+	m.aliasInput.Width = d.msgInnerW
+	if m.activeChannelID == "" {
+		m.viewport.SetContent("\n  Pick a channel on the left and press enter to open it.")
+	}
 	return m
 }
 
 // dims holds the computed inner sizes of every pane for the current window.
-// Both resize() and View() derive their geometry from here, so they never drift.
+// Both applyLayout() and View() derive their geometry from here, so they never drift.
 type dims struct {
 	sidebarInnerW  int
 	sidebarInnerH  int
 	msgInnerW      int
 	messagesInnerH int
+	popupRows      int
 }
 
 func (m Model) layout() dims {
@@ -266,8 +395,19 @@ func (m Model) layout() dims {
 		msgInnerW = 10
 	}
 
+	popupRows := 0
+	if m.emojiActive {
+		if popupRows = len(m.emojiMatches); popupRows > maxEmojiResults {
+			popupRows = maxEmojiResults
+		}
+	}
+	popupTotalH := 0
+	if popupRows > 0 {
+		popupTotalH = popupRows + 2 // popup border
+	}
+
 	composerTotalH := composerLines + 2 // textarea rows + border
-	messagesInnerH := contentH - composerTotalH - 2
+	messagesInnerH := contentH - composerTotalH - popupTotalH - 2
 	if messagesInnerH < 1 {
 		messagesInnerH = 1
 	}
@@ -277,6 +417,7 @@ func (m Model) layout() dims {
 		sidebarInnerH:  contentH - 2,
 		msgInnerW:      msgInnerW,
 		messagesInnerH: messagesInnerH,
+		popupRows:      popupRows,
 	}
 }
 
@@ -328,18 +469,25 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 			}
 		}
 
+		// Alias store lets DMs show "luis" instead of "@luisdavid.francisco".
+		aliases, _ := alias.Load()
+
 		items := make([]channelItem, 0, len(chans))
 		for _, ch := range chans {
-			label := ch.DisplayName
+			typ := channelTypeLabel(ch.Type)
+			var name, desc, username string
 			switch ch.Type {
 			case model.ChannelTypeDirect:
-				label = names[ch.GetOtherUserIdForDM(m.mm.UserID)]
+				username = strings.TrimPrefix(names[ch.GetOtherUserIdForDM(m.mm.UserID)], "@")
+				name, desc = dmLabel(username, aliases)
 			default:
-				if label == "" {
-					label = ch.Name
+				name = ch.DisplayName
+				if name == "" {
+					name = ch.Name
 				}
+				desc = "# " + typ
 			}
-			items = append(items, channelItem{id: ch.Id, name: label, typ: channelTypeLabel(ch.Type)})
+			items = append(items, channelItem{id: ch.Id, name: name, desc: desc, typ: typ, username: username})
 		}
 
 		// Named channels first, DMs after; alphabetical within each group.
@@ -392,6 +540,18 @@ func (m Model) loadPostsCmd(channelID string) tea.Cmd {
 
 		return postsLoadedMsg{channelID: channelID, markdown: b.String(), count: len(posts.Order), ownPosts: own}
 	}
+}
+
+// dmLabel returns the sidebar title and subtitle for a DM. When an alias points
+// at the user, the alias is the title and the @handle the subtitle; otherwise
+// the @handle is the title.
+func dmLabel(bareUsername string, store *alias.Store) (title, desc string) {
+	if store != nil {
+		if a := store.AliasesFor(bareUsername); len(a) > 0 {
+			return a[0], "@" + bareUsername
+		}
+	}
+	return "@" + bareUsername, "dm"
 }
 
 func channelTypeLabel(t model.ChannelType) string {

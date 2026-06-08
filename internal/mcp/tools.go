@@ -67,6 +67,18 @@ type sendMessageOut struct {
 	PostID    string `json:"post_id"`
 }
 
+type editMessageIn struct {
+	Channel string `json:"channel,omitempty" jsonschema:"target channel (edits your last message there)"`
+	User    string `json:"user,omitempty" jsonschema:"target username or alias for a DM (edits your last message there)"`
+	PostID  string `json:"post_id,omitempty" jsonschema:"edit this specific post instead of your last message"`
+	Message string `json:"message" jsonschema:"new message body"`
+}
+
+type editMessageOut struct {
+	OK     bool   `json:"ok"`
+	PostID string `json:"post_id"`
+}
+
 type manageAliasIn struct {
 	Action   string `json:"action" jsonschema:"one of: list, add, remove"`
 	Alias    string `json:"alias,omitempty" jsonschema:"the short handle (required for add/remove)"`
@@ -164,6 +176,32 @@ func (s *Server) registerTools() {
 				return nil, sendMessageOut{}, err
 			}
 			return nil, sendMessageOut{OK: true, ChannelID: channelID, PostID: postID}, nil
+		},
+	)
+
+	mcpsdk.AddTool(s.srv,
+		&mcpsdk.Tool{
+			Name:        "edit_message",
+			Description: "Edit one of your own messages. Provide channel or user to edit your last message there, or post_id to target a specific post. Side effect: updates the post. You can only edit your own messages.",
+		},
+		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in editMessageIn) (*mcpsdk.CallToolResult, editMessageOut, error) {
+			if in.Message == "" {
+				return nil, editMessageOut{}, fmt.Errorf("message is required")
+			}
+			postID := in.PostID
+			if postID == "" {
+				channelID, err := s.mm.ResolveChannelID(ctx, client.Target{Channel: in.Channel, User: in.User})
+				if err != nil {
+					return nil, editMessageOut{}, err
+				}
+				if postID, err = s.mm.LastOwnPostID(ctx, channelID); err != nil {
+					return nil, editMessageOut{}, err
+				}
+			}
+			if err := s.mm.EditPost(ctx, postID, in.Message); err != nil {
+				return nil, editMessageOut{}, err
+			}
+			return nil, editMessageOut{OK: true, PostID: postID}, nil
 		},
 	)
 

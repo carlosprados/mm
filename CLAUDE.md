@@ -50,6 +50,7 @@ Mapping table (keep in sync with the code):
 | `mm users`             | `list_users`      | `mm://team/users`                            | —                                               |
 | `mm read -c X -n N`    | `read_channel`    | `mm://channel/{name}/messages?limit=N`       | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
 | `mm send …`            | `send_message`    | —                                            | —                                               |
+| `mm edit …`            | `edit_message`    | —                                            | —                                               |
 | `mm alias add/rm/list` | `manage_alias`    | —                                            | —                                               |
 | `mm whoami`            | `whoami`          | —                                            | —                                               |
 | `mm login` / `logout`  | _intentionally not exposed_ — auth is host-side, the MCP server reuses the saved session | — | — |
@@ -74,6 +75,7 @@ mm/
 │   ├── channels.go    — `mm channels`
 │   ├── read.go        — `mm read -c <channel> [-n <limit>]`
 │   ├── send.go        — `mm send [-c <channel>|-u <username>] -m <message>`
+│   ├── edit.go        — `mm edit [-c <channel>|-u <username>] [--post <id>] -m <message>`
 │   ├── users.go       — `mm users`
 │   ├── alias.go       — `mm alias add|rm|list` — short handles → usernames
 │   ├── login.go       — `mm login` interactive auth + persisted session
@@ -86,20 +88,22 @@ mm/
     ├── alias/
     │   └── alias.go       — alias→username store (aliases.json, 0644), Resolve()
     ├── client/
-    │   └── mattermost.go  — MM struct, New(), env+config precedence
+    │   ├── mattermost.go  — MM struct, New(), env+config precedence
+    │   └── messaging.go   — Target, ResolveChannelID, Send/SendToChannelID, EditPost (shared by CLI/TUI/MCP)
     ├── config/
     │   └── config.go      — XDG-aware credential persistence (0600)
     ├── mcp/
     │   ├── server.go      — wires up tools/resources/prompts
-    │   ├── tools.go       — 6 tools
+    │   ├── tools.go       — 7 tools
     │   ├── resources.go   — 3 resources (1 fixed + 2 templated)
     │   └── prompts.go     — 3 prompts
     └── tui/               — interactive terminal UI (Bubble Tea)
-        ├── model.go       — root model, focus, channelItem
-        ├── update.go      — Update loop + async tea.Cmds (polling)
-        ├── view.go        — lipgloss layout (sidebar + message pane + footer)
+        ├── model.go       — root model, focus, channelItem, edit/alias/emoji state
+        ├── update.go      — Update loop + async tea.Cmds (polling), layout
+        ├── view.go        — lipgloss layout (sidebar + messages + emoji popup + composer + footer)
         ├── keys.go        — app-level keymap
         ├── messages.go    — tea.Msg types
+        ├── emoji.go       — emoji dataset + ":query" search (kyokomi/emoji)
         └── styles.go      — lipgloss styles
 ```
 
@@ -110,6 +114,16 @@ lipgloss, with Markdown rendered by glamour. It reuses `client.MM` and the
 shared messaging service; it does **not** introduce its own Mattermost logic.
 Auth is host-side (saved session / env), like `mm mcp`, so it has no MCP
 counterpart. Active channel is refreshed by polling (no WebSocket yet).
+
+TUI extras that stay leveled with the other surfaces:
+- **Edit** your own messages with `↑` (same as `mm edit` / `edit_message`).
+- **Alias** a DM's user with `a` — writes the same `aliases.json` as
+  `mm alias` / `manage_alias`.
+- **Emoji picker** on a trailing `:query` in the composer (fuzzy search via
+  `kyokomi/emoji`); inserts the unicode glyph.
+`internal/tui/emoji.go` holds the emoji dataset + search; it is a TUI-only
+input affordance (the resulting text is sent like any other), so it needs no
+CLI/MCP counterpart.
 
 ## Conventions
 
