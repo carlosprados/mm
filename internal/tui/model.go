@@ -52,8 +52,21 @@ type Model struct {
 	activeChannelName string
 	limit             int
 
+	// Up-arrow editing (shell/Slack style): ownPosts is newest-first, editIndex
+	// walks back through it, savedDraft preserves the in-progress message.
+	ownPosts   []ownPost
+	editing    bool
+	editIndex  int
+	savedDraft string
+
 	status string
 	err    error
+}
+
+// ownPost is one of the current user's editable posts in the active channel.
+type ownPost struct {
+	id      string
+	message string
 }
 
 // channelItem adapts a Mattermost channel to bubbles/list.Item.

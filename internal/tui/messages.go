@@ -14,6 +14,7 @@ type postsLoadedMsg struct {
 	channelID string
 	markdown  string
 	count     int
+	ownPosts  []ownPost // current user's posts, newest-first (for up-arrow editing)
 }
 
 type errMsg struct {
