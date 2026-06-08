@@ -165,6 +165,21 @@ func TestChannelLess(t *testing.T) {
 	}
 }
 
+// TestShellQuote ensures paths are safely single-quoted for the chafa exec.
+func TestShellQuote(t *testing.T) {
+	cases := map[string]string{
+		"/tmp/mm-123.png": "'/tmp/mm-123.png'",
+		"/tmp/a b.png":    "'/tmp/a b.png'",
+		"/tmp/it's.png":   `'/tmp/it'\''s.png'`,
+		"; rm -rf ~":      `'; rm -rf ~'`,
+	}
+	for in, want := range cases {
+		if got := shellQuote(in); got != want {
+			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // TestDMLabel checks alias-aware DM labelling for the sidebar.
 func TestDMLabel(t *testing.T) {
 	store := &alias.Store{Aliases: map[string]string{"luis": "luisdavid.francisco"}}
