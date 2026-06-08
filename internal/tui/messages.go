@@ -26,6 +26,23 @@ type copiedMsg struct {
 	err error
 }
 
+// attachmentsLoadedMsg carries the channel's image attachments for the picker.
+type attachmentsLoadedMsg struct {
+	images []imageAttachment
+	err    error
+}
+
+// imageReadyMsg signals a downloaded image is on disk and ready to render.
+type imageReadyMsg struct {
+	path string
+	err  error
+}
+
+// imageClosedMsg fires after the external image viewer (chafa) returns.
+type imageClosedMsg struct {
+	path string
+}
+
 type errMsg struct {
 	err error
 }
