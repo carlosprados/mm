@@ -50,6 +50,7 @@ Mapping table (keep in sync with the code):
 | `mm users`             | `list_users`      | `mm://team/users`                            | —                                               |
 | `mm read -c X -n N`    | `read_channel`    | `mm://channel/{name}/messages?limit=N`       | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
 | `mm send …`            | `send_message`    | —                                            | —                                               |
+| `mm alias add/rm/list` | `manage_alias`    | —                                            | —                                               |
 | `mm whoami`            | `whoami`          | —                                            | —                                               |
 | `mm login` / `logout`  | _intentionally not exposed_ — auth is host-side, the MCP server reuses the saved session | — | — |
 
@@ -74,19 +75,22 @@ mm/
 │   ├── read.go        — `mm read -c <channel> [-n <limit>]`
 │   ├── send.go        — `mm send [-c <channel>|-u <username>] -m <message>`
 │   ├── users.go       — `mm users`
+│   ├── alias.go       — `mm alias add|rm|list` — short handles → usernames
 │   ├── login.go       — `mm login` interactive auth + persisted session
 │   ├── logout.go      — `mm logout`
 │   ├── whoami.go      — `mm whoami`
 │   ├── mcp.go         — `mm mcp` → MCP server on stdio
 │   └── version.go     — `mm version`
 └── internal/
+    ├── alias/
+    │   └── alias.go       — alias→username store (aliases.json, 0644), Resolve()
     ├── client/
     │   └── mattermost.go  — MM struct, New(), env+config precedence
     ├── config/
     │   └── config.go      — XDG-aware credential persistence (0600)
     └── mcp/
         ├── server.go      — wires up tools/resources/prompts
-        ├── tools.go       — 5 tools
+        ├── tools.go       — 6 tools
         ├── resources.go   — 3 resources (1 fixed + 2 templated)
         └── prompts.go     — 3 prompts
 ```
