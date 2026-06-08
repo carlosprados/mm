@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -21,18 +24,47 @@ func (m Model) View() string {
 		Height(d.messagesInnerH).
 		Render(m.viewport.View())
 
-	composer := paneStyle(m.focus == focusComposer).
+	composerStyle := paneStyle(m.focus == focusComposer).
 		Width(d.msgInnerW).
-		Height(composerLines).
-		Render(m.composer.View())
+		Height(composerLines)
+	if m.editing {
+		composerStyle = composerStyle.BorderForeground(editingColor)
+	}
+	composer := composerStyle.Render(m.composer.View())
 
-	right := lipgloss.JoinVertical(lipgloss.Left, messages, composer)
+	rightParts := []string{messages}
+	if d.popupRows > 0 {
+		rightParts = append(rightParts, m.emojiPopupView(d.msgInnerW, d.popupRows))
+	}
+	rightParts = append(rightParts, composer)
+	right := lipgloss.JoinVertical(lipgloss.Left, rightParts...)
+
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
 	return lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
 }
 
+func (m Model) emojiPopupView(width, rows int) string {
+	var b strings.Builder
+	for i := 0; i < rows; i++ {
+		e := m.emojiMatches[i]
+		line := fmt.Sprintf("%s  :%s:", e.glyph, e.short)
+		if i == m.emojiIndex {
+			line = emojiSelStyle.Render(line)
+		}
+		b.WriteString(line)
+		if i < rows-1 {
+			b.WriteByte('\n')
+		}
+	}
+	return paneStyle(true).Width(width).Height(rows).Render(b.String())
+}
+
 func (m Model) footer() string {
-	help := "tab switch · enter open · ctrl+s send · / filter · r refresh · q quit"
+	if m.aliasMode {
+		return footerStyle.Width(m.width).
+			Render("alias for @" + m.aliasUser + ": " + m.aliasInput.View() + "  (enter saves · esc cancels)")
+	}
+	help := "tab switch · enter open · ctrl+s send · : emoji · a alias · / filter · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }

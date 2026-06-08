@@ -28,7 +28,10 @@ Built against Mattermost Server **11.6.x** using the official
 - Read the last *N* messages from a channel.
 - Send a message to a channel **or** a direct message to a user.
 - Resolves user IDs to `@usernames` in batch — no opaque UUIDs.
-- MCP server (`mm mcp`) with **5 tools**, **3 resources** and **3 prompts**.
+- Edit your own messages from the CLI, the TUI (`↑`) or MCP.
+- Configurable aliases: DM a colleague by a short handle (`luis` → `luisdavid.francisco`).
+- Interactive TUI (`mm tui`) built on Bubble Tea, with Markdown rendering.
+- MCP server (`mm mcp`) with **7 tools**, **3 resources** and **3 prompts**.
 
 ---
 
@@ -200,6 +203,23 @@ mm send -u juan.garcia  -m "¿Tienes un momento?"
 mm send -u luis         -m "¿Tienes un momento?"   # luis is an alias
 ```
 
+### `mm edit` — edit one of your messages
+
+Edits your most recent message in a channel or DM, or a specific post with
+`--post`. You can only edit your own messages.
+
+| Flag              | Description                                                |
+|-------------------|------------------------------------------------------------|
+| `-c, --channel`   | Target channel. Edits your last message there.             |
+| `-u, --user`      | Target username or alias. Edits your last DM message there.|
+| `--post`          | Edit a specific post by ID instead of your last message.   |
+| `-m, --message`   | **Required.** New message body.                            |
+
+```bash
+mm edit -c dev-backend -m "Deploy listo (corregido)"
+mm edit -u luis        -m "Perdón, quería decir mañana"
+```
+
 ### `mm alias` — short handles for colleagues
 
 Map a short handle to a canonical username so you can DM `luisdavid.francisco`
@@ -225,6 +245,34 @@ mm alias rm luisete
 | `mm version`  | Print version, commit and build date     |
 | `mm mcp`      | Run as MCP server on stdio               |
 | `mm tui`      | Launch the interactive terminal UI       |
+
+---
+
+## TUI (`mm tui`)
+
+A full-screen terminal client: a channel/DM sidebar on the left, a
+Markdown-rendered message pane and a composer on the right. DMs are labelled by
+the colleague's alias when one is configured. Same auth as the CLI; the active
+channel is refreshed by polling.
+
+| Key             | Action                                                       |
+|-----------------|--------------------------------------------------------------|
+| `tab`           | Cycle focus: sidebar → messages → composer                   |
+| `j` / `k`       | Move within the focused pane                                 |
+| `/`             | Filter the sidebar (matches alias and @handle)               |
+| `enter`         | Open the selected channel (focus jumps to the composer)      |
+| `a`             | On a selected DM: assign an alias to that colleague          |
+| `ctrl+s`        | Send the composed message                                    |
+| `:` + text      | Emoji picker — fuzzy search, `↑`/`↓` to choose, `enter`/`tab` to insert |
+| `↑` / `↓`       | In the composer: walk back/forward through **your** messages to edit them; `↓` past the newest restores your draft |
+| `esc`           | Close the emoji picker / cancel an edit (restores the draft) / back to sidebar |
+| `r`             | Refresh                                                      |
+| `q` / `ctrl+c`  | Quit (`ctrl+c` always; `q` is text while composing/filtering)|
+
+- Editing your own messages (the `↑` flow) maps to the same capability as
+  `mm edit` and the `edit_message` MCP tool.
+- Assigning an alias with `a` writes the same `aliases.json` used by
+  `mm alias` and the `manage_alias` MCP tool — the three surfaces stay in sync.
 
 ---
 
@@ -297,6 +345,7 @@ npx @modelcontextprotocol/inspector mm mcp
 | `mm users`       | `list_users`   | `mm://team/users`                           | —                                                         |
 | `mm read`        | `read_channel` | `mm://channel/{name}/messages?limit={n}`    | feeds `summarize_channel`, `draft_reply`, `daily_digest`  |
 | `mm send`        | `send_message` | —                                           | —                                                         |
+| `mm edit`        | `edit_message` | —                                           | —                                                         |
 | `mm alias`       | `manage_alias` | —                                           | —                                                         |
 | `mm whoami`      | `whoami`       | —                                           | —                                                         |
 | `mm login/logout`| _host-side only_ — MCP reuses the saved session | — | —                                                |
@@ -354,19 +403,32 @@ mm/
 │   ├── channels.go
 │   ├── read.go
 │   ├── send.go
+│   ├── edit.go
+│   ├── alias.go
 │   ├── users.go
 │   ├── mcp.go
+│   ├── tui.go
 │   └── version.go
 └── internal/
+    ├── alias/            — alias→username store (XDG, 0644)
+    │   └── alias.go
     ├── client/           — Mattermost API wrapper
-    │   └── mattermost.go
+    │   ├── mattermost.go
+    │   └── messaging.go  — Target, Send, EditPost (shared by CLI/TUI/MCP)
     ├── config/           — Persisted session (XDG, 0600)
     │   └── config.go
-    └── mcp/              — MCP server (parity with CLI)
-        ├── server.go
-        ├── tools.go
-        ├── resources.go
-        └── prompts.go
+    ├── mcp/              — MCP server (parity with CLI)
+    │   ├── server.go
+    │   ├── tools.go
+    │   ├── resources.go
+    │   └── prompts.go
+    └── tui/              — interactive terminal UI (Bubble Tea)
+        ├── model.go
+        ├── update.go
+        ├── view.go
+        ├── keys.go
+        ├── messages.go
+        └── styles.go
 ```
 
 ### Branching model

@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
@@ -36,12 +37,23 @@ type Model struct {
 	ctx context.Context
 	mm  *client.MM
 
-	keys      keyMap
-	list      list.Model
-	viewport  viewport.Model
-	composer  textarea.Model
-	renderer  *glamour.TermRenderer
-	styleName string // glamour style resolved once at startup (no TTY query in the loop)
+	keys       keyMap
+	list       list.Model
+	viewport   viewport.Model
+	composer   textarea.Model
+	aliasInput textinput.Model
+	renderer   *glamour.TermRenderer
+	styleName  string // glamour style resolved once at startup (no TTY query in the loop)
+
+	// aliasMode captures an alias for the selected DM's user (aliasUser).
+	aliasMode bool
+	aliasUser string
+
+	// Emoji picker: opens on a trailing ":query" in the composer.
+	emojiActive  bool
+	emojiMatches []emojiEntry
+	emojiIndex   int
+	emojiQuery   string
 
 	focus  focusArea
 	width  int
@@ -71,14 +83,16 @@ type ownPost struct {
 
 // channelItem adapts a Mattermost channel to bubbles/list.Item.
 type channelItem struct {
-	id   string
-	name string
-	typ  string
+	id       string
+	name     string
+	desc     string // shown under the title (handle for DMs, type for channels)
+	typ      string // "public"/"private"/"group"/"dm" — drives sorting
+	username string // bare username for DMs (empty for channels), used to set aliases
 }
 
 func (c channelItem) Title() string       { return c.name }
-func (c channelItem) Description() string  { return c.typ }
-func (c channelItem) FilterValue() string { return c.name }
+func (c channelItem) Description() string  { return c.desc }
+func (c channelItem) FilterValue() string { return c.name + " " + c.desc }
 
 // New builds the initial model bound to an authenticated client.
 func New(ctx context.Context, mm *client.MM) Model {
@@ -102,23 +116,27 @@ func New(ctx context.Context, mm *client.MM) Model {
 	)
 
 	ta := textarea.New()
-	ta.Placeholder = "Write a message… (ctrl+s to send)"
+	ta.Placeholder = "Write a message… (ctrl+s to send, : for emoji)"
 	ta.ShowLineNumbers = false
 	ta.SetHeight(composerLines)
 	ta.CharLimit = 0 // unlimited
 
+	ai := textinput.New()
+	ai.Placeholder = "alias"
+
 	return Model{
-		ctx:       ctx,
-		mm:        mm,
-		keys:      defaultKeys(),
-		list:      l,
-		viewport:  viewport.New(0, 0),
-		composer:  ta,
-		renderer:  r,
-		styleName: styleName,
-		focus:     focusSidebar,
-		limit:     defaultLimit,
-		status:    "Select a channel and press enter",
+		ctx:        ctx,
+		mm:         mm,
+		keys:       defaultKeys(),
+		list:       l,
+		viewport:   viewport.New(0, 0),
+		composer:   ta,
+		aliasInput: ai,
+		renderer:   r,
+		styleName:  styleName,
+		focus:      focusSidebar,
+		limit:      defaultLimit,
+		status:     "Select a channel · enter opens · a aliases a DM",
 	}
 }
 

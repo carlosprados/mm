@@ -7,6 +7,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
+	github.com/kyokomi/emoji/v2 v2.2.13
 	github.com/mattermost/mattermost/server/public v0.3.1
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/muesli/termenv v0.16.0
