@@ -20,5 +20,10 @@ type errMsg struct {
 	err error
 }
 
+// sentMsg reports that a message was posted to a channel.
+type sentMsg struct {
+	channelID string
+}
+
 // tickMsg drives the polling refresh of the active channel.
 type tickMsg struct{}

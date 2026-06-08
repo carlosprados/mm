@@ -40,6 +40,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, msg.count)
 		return m, nil
 
+	case sentMsg:
+		if msg.channelID == m.activeChannelID {
+			return m, m.loadPostsCmd(msg.channelID)
+		}
+		return m, nil
+
 	case tickMsg:
 		cmds := []tea.Cmd{tickCmd()}
 		if m.activeChannelID != "" {
@@ -57,27 +63,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Ctrl+C always quits, even while filtering — never trap the user.
+	// Ctrl+C always quits, even while filtering or composing — never trap the user.
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
 
-	// While the sidebar filter is open, keys belong to the filter input.
+	// While the sidebar filter is open or the composer is focused, single-letter
+	// shortcuts (q, r) are text input, not commands.
 	filtering := m.list.FilterState() == list.Filtering
+	composing := m.focus == focusComposer
 
 	switch {
-	case key.Matches(msg, m.keys.Quit) && !filtering:
-		return m, tea.Quit
+	case key.Matches(msg, m.keys.Send):
+		return m.sendMessage()
 
 	case key.Matches(msg, m.keys.Tab):
-		m.focus = (m.focus + 1) % 2
-		return m, nil
+		cmd := m.setFocus((m.focus + 1) % focusCount)
+		return m, cmd
 
-	case key.Matches(msg, m.keys.Back) && m.focus == focusMessages:
-		m.focus = focusSidebar
-		return m, nil
+	case key.Matches(msg, m.keys.Back) && !filtering:
+		cmd := m.setFocus(focusSidebar)
+		return m, cmd
 
-	case key.Matches(msg, m.keys.Refresh) && !filtering:
+	case key.Matches(msg, m.keys.Quit) && !composing && !filtering:
+		return m, tea.Quit
+
+	case key.Matches(msg, m.keys.Refresh) && !composing && !filtering:
 		if m.activeChannelID != "" {
 			return m, m.loadPostsCmd(m.activeChannelID)
 		}
@@ -87,14 +98,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if it, ok := m.list.SelectedItem().(channelItem); ok {
 			m.activeChannelID = it.id
 			m.activeChannelName = it.name
-			m.focus = focusMessages
 			m.status = "loading " + it.name + "…"
-			return m, m.loadPostsCmd(it.id)
+			cmd := m.setFocus(focusComposer)
+			return m, tea.Batch(cmd, m.loadPostsCmd(it.id))
 		}
 		return m, nil
 	}
 
 	return m.delegateToFocused(msg)
+}
+
+// sendMessage posts the composer's contents to the active channel.
+func (m Model) sendMessage() (tea.Model, tea.Cmd) {
+	text := strings.TrimSpace(m.composer.Value())
+	if text == "" || m.activeChannelID == "" {
+		return m, nil
+	}
+	ch := m.activeChannelID
+	m.composer.Reset()
+	m.status = "sending…"
+	return m, m.sendCmd(ch, text)
 }
 
 // delegateToFocused forwards a message to whichever component holds focus.
@@ -105,6 +128,8 @@ func (m Model) delegateToFocused(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 	case focusMessages:
 		m.viewport, cmd = m.viewport.Update(msg)
+	case focusComposer:
+		m.composer, cmd = m.composer.Update(msg)
 	}
 	return m, cmd
 }
@@ -112,19 +137,13 @@ func (m Model) delegateToFocused(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) resize(w, h int) Model {
 	m.width, m.height = w, h
 
-	const footerH = 1
-	contentH := h - footerH
-	paneInnerH := contentH - 2 // pane border (top+bottom)
+	d := m.layout()
 
-	sidebarInner := sidebarWidth - 2
-	msgInner := w - sidebarWidth - 2
-	if msgInner < 10 {
-		msgInner = 10
-	}
-
-	m.list.SetSize(sidebarInner, paneInnerH)
-	m.viewport.Width = msgInner
-	m.viewport.Height = paneInnerH
+	m.list.SetSize(d.sidebarInnerW, d.sidebarInnerH)
+	m.viewport.Width = d.msgInnerW
+	m.viewport.Height = d.messagesInnerH
+	m.composer.SetWidth(d.msgInnerW)
+	m.composer.SetHeight(composerLines)
 	if m.activeChannelID == "" {
 		m.viewport.SetContent("\n  Pick a channel on the left and press enter to open it.")
 	}
@@ -134,7 +153,7 @@ func (m Model) resize(w, h int) Model {
 	// TTY and deadlock against Bubble Tea's input reader.
 	if r, err := glamour.NewTermRenderer(
 		glamour.WithStandardStyle(m.styleName),
-		glamour.WithWordWrap(msgInner),
+		glamour.WithWordWrap(d.msgInnerW),
 	); err == nil {
 		m.renderer = r
 	}
@@ -143,12 +162,53 @@ func (m Model) resize(w, h int) Model {
 	return m
 }
 
+// dims holds the computed inner sizes of every pane for the current window.
+// Both resize() and View() derive their geometry from here, so they never drift.
+type dims struct {
+	sidebarInnerW  int
+	sidebarInnerH  int
+	msgInnerW      int
+	messagesInnerH int
+}
+
+func (m Model) layout() dims {
+	const footerH = 1
+	contentH := m.height - footerH
+
+	msgInnerW := m.width - sidebarWidth - 2
+	if msgInnerW < 10 {
+		msgInnerW = 10
+	}
+
+	composerTotalH := composerLines + 2 // textarea rows + border
+	messagesInnerH := contentH - composerTotalH - 2
+	if messagesInnerH < 1 {
+		messagesInnerH = 1
+	}
+
+	return dims{
+		sidebarInnerW:  sidebarWidth - 2,
+		sidebarInnerH:  contentH - 2,
+		msgInnerW:      msgInnerW,
+		messagesInnerH: messagesInnerH,
+	}
+}
+
 // --- commands (async network calls) ---
 
 func tickCmd() tea.Cmd {
 	return tea.Tick(pollInterval*time.Second, func(time.Time) tea.Msg {
 		return tickMsg{}
 	})
+}
+
+func (m Model) sendCmd(channelID, text string) tea.Cmd {
+	return func() tea.Msg {
+		if _, err := m.mm.SendToChannelID(m.ctx, channelID, text); err != nil {
+			return errMsg{err}
+		}
+		return sentMsg{channelID: channelID}
+	}
 }
 
 func (m Model) loadChannelsCmd() tea.Cmd {

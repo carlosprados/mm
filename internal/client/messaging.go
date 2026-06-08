@@ -52,16 +52,23 @@ func (mm *MM) ResolveChannelID(ctx context.Context, t Target) (string, error) {
 // Send posts a message immediately. It returns the resolved channel ID and the
 // created post ID.
 func (mm *MM) Send(ctx context.Context, t Target, message string) (channelID, postID string, err error) {
-	if message == "" {
-		return "", "", fmt.Errorf("message is required")
-	}
 	channelID, err = mm.ResolveChannelID(ctx, t)
 	if err != nil {
 		return "", "", err
 	}
+	postID, err = mm.SendToChannelID(ctx, channelID, message)
+	return channelID, postID, err
+}
+
+// SendToChannelID posts a message to an already-resolved channel ID. The TUI
+// uses this since it tracks the active channel by ID.
+func (mm *MM) SendToChannelID(ctx context.Context, channelID, message string) (postID string, err error) {
+	if message == "" {
+		return "", fmt.Errorf("message is required")
+	}
 	post, _, err := mm.Client.CreatePost(ctx, &model.Post{ChannelId: channelID, Message: message})
 	if err != nil {
-		return "", "", fmt.Errorf("could not send message: %w", err)
+		return "", fmt.Errorf("could not send message: %w", err)
 	}
-	return channelID, post.Id, nil
+	return post.Id, nil
 }

@@ -9,6 +9,7 @@ type keyMap struct {
 	Enter   key.Binding
 	Back    key.Binding
 	Refresh key.Binding
+	Send    key.Binding
 	Quit    key.Binding
 }
 
@@ -29,6 +30,10 @@ func defaultKeys() keyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		Send: key.NewBinding(
+			key.WithKeys("ctrl+s"),
+			key.WithHelp("ctrl+s", "send"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
