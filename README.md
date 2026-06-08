@@ -286,11 +286,18 @@ bottom if you were already there). Press `y` to copy any message's Markdown
 source to the clipboard — handy for code blocks and formatted text alike.
 Clipboard needs `xclip`/`xsel` (X11) or `wl-copy` (Wayland).
 
+**Images.** Press `i` on the message pane to pick an image attachment; it is
+downloaded and rendered **inline** with [`chafa`](https://hpjansson.org/chafa/),
+which auto-detects the best protocol your terminal supports (sixel / kitty /
+iTerm2 / unicode symbols). The TUI is briefly suspended while the image is
+shown; press Enter to return. Requires `chafa` on `PATH`.
+
 | Key             | Action                                                       |
 |-----------------|--------------------------------------------------------------|
 | `tab`           | Cycle focus: sidebar → messages → composer                   |
 | `j` / `k`       | Move within the focused pane (scroll the message pane when focused) |
 | `y`             | On the message pane: open the copy picker — pick a message, `enter`/`y` copies its **Markdown source** to the clipboard |
+| `i`             | On the message pane: open the image picker — pick an attachment, `enter` renders it inline with `chafa` |
 | `/`             | Filter the sidebar (matches alias and @handle)               |
 | `enter`         | Open the selected channel (marks it read; focus → composer)  |
 | `a`             | On a selected DM: assign an alias to that colleague          |

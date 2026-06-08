@@ -77,6 +77,12 @@ type Model struct {
 	copyMode   bool
 	copyCursor int
 
+	// image picker: 'i' lists image attachments in the channel; selecting one
+	// downloads it and renders it inline via chafa (suspending the TUI).
+	imagePickMode    bool
+	imageAttachments []imageAttachment
+	imagePickCursor  int
+
 	focus  focusArea
 	width  int
 	height int
@@ -104,11 +110,20 @@ type ownPost struct {
 }
 
 // postLine is a displayed message in the active channel, kept so it can be
-// copied as Markdown source.
+// copied as Markdown source and so its attachments can be located.
 type postLine struct {
+	postID  string
 	time    string
 	author  string
 	message string
+	fileIDs []string
+}
+
+// imageAttachment is an image file attached to a message in the active channel.
+type imageAttachment struct {
+	label  string // "HH:MM @user — name.png"
+	fileID string
+	name   string
 }
 
 // channelItem adapts a Mattermost channel to bubbles/list.Item.
