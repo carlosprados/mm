@@ -76,3 +76,80 @@ func TestSendEmptyIsNoop(t *testing.T) {
 		t.Error("empty composer should not send")
 	}
 }
+
+// newTestModelWithHistory returns a composing model with three own posts
+// (newest-first) and an in-progress draft.
+func newTestModelWithHistory() Model {
+	m := newTestModel()
+	m.focus = focusComposer
+	m.activeChannelID = "chan1"
+	m.ownPosts = []ownPost{
+		{id: "p3", message: "third"},
+		{id: "p2", message: "second"},
+		{id: "p1", message: "first"},
+	}
+	m.composer.SetValue("draft")
+	return m
+}
+
+// TestUpArrowEditWalk verifies up/down navigation through own messages and that
+// the in-progress draft is preserved and restored.
+func TestUpArrowEditWalk(t *testing.T) {
+	m := newTestModelWithHistory()
+
+	m = m.historyOlder()
+	if !m.editing || m.editIndex != 0 || m.composer.Value() != "third" {
+		t.Fatalf("first up: editing=%v idx=%d val=%q", m.editing, m.editIndex, m.composer.Value())
+	}
+	if m.savedDraft != "draft" {
+		t.Errorf("draft not saved: %q", m.savedDraft)
+	}
+
+	m = m.historyOlder()
+	m = m.historyOlder()
+	if m.editIndex != 2 || m.composer.Value() != "first" {
+		t.Fatalf("walk to oldest: idx=%d val=%q", m.editIndex, m.composer.Value())
+	}
+	// Already at the oldest — should not move further.
+	m = m.historyOlder()
+	if m.editIndex != 2 {
+		t.Errorf("should stay at oldest, got idx=%d", m.editIndex)
+	}
+
+	// Walk back down to the draft.
+	m = m.historyNewer()
+	m = m.historyNewer()
+	if m.editIndex != 0 || m.composer.Value() != "third" {
+		t.Fatalf("walk back: idx=%d val=%q", m.editIndex, m.composer.Value())
+	}
+	m = m.historyNewer()
+	if m.editing || m.composer.Value() != "draft" {
+		t.Errorf("past newest should restore draft: editing=%v val=%q", m.editing, m.composer.Value())
+	}
+}
+
+// TestEscCancelsEdit restores the draft and leaves edit mode.
+func TestEscCancelsEdit(t *testing.T) {
+	m := newTestModelWithHistory()
+	m = m.historyOlder() // enter edit, draft saved
+	m = m.cancelEdit()
+	if m.editing || m.composer.Value() != "draft" {
+		t.Errorf("cancel should restore draft: editing=%v val=%q", m.editing, m.composer.Value())
+	}
+}
+
+// TestSendInEditModeExits ensures saving an edit dispatches a command and leaves
+// edit mode without keeping the draft.
+func TestSendInEditModeExits(t *testing.T) {
+	m := newTestModelWithHistory()
+	m = m.historyOlder() // editing "third"
+	m.composer.SetValue("edited text")
+	updated, cmd := m.sendMessage()
+	got := updated.(Model)
+	if cmd == nil {
+		t.Error("editing send should dispatch a command")
+	}
+	if got.editing {
+		t.Error("should leave edit mode after saving")
+	}
+}

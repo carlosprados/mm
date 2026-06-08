@@ -72,3 +72,16 @@ func (mm *MM) SendToChannelID(ctx context.Context, channelID, message string) (p
 	}
 	return post.Id, nil
 }
+
+// EditPost updates the body of an existing post. The server only allows editing
+// the authenticated user's own posts (and may enforce an edit time limit).
+func (mm *MM) EditPost(ctx context.Context, postID, message string) error {
+	if message == "" {
+		return fmt.Errorf("message is required")
+	}
+	_, _, err := mm.Client.PatchPost(ctx, postID, &model.PostPatch{Message: &message})
+	if err != nil {
+		return fmt.Errorf("could not edit message: %w", err)
+	}
+	return nil
+}

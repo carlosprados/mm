@@ -37,6 +37,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.viewport.SetContent(rendered)
 		m.viewport.GotoBottom()
+		// Don't shift the edit history out from under an in-progress edit.
+		if !m.editing {
+			m.ownPosts = msg.ownPosts
+		}
 		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, msg.count)
 		return m, nil
 
@@ -72,10 +76,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// shortcuts (q, r) are text input, not commands.
 	filtering := m.list.FilterState() == list.Filtering
 	composing := m.focus == focusComposer
+	composerEmpty := strings.TrimSpace(m.composer.Value()) == ""
 
 	switch {
 	case key.Matches(msg, m.keys.Send):
 		return m.sendMessage()
+
+	// Esc while editing cancels the edit and restores the draft, staying put.
+	case msg.String() == "esc" && m.editing:
+		return m.cancelEdit(), nil
+
+	// Up walks back through your own messages (shell/Slack style); only when the
+	// composer is empty or already editing, otherwise it's a cursor move.
+	case msg.String() == "up" && composing && (m.editing || composerEmpty):
+		return m.historyOlder(), nil
+
+	// Down walks forward and eventually restores the in-progress draft.
+	case msg.String() == "down" && composing && m.editing:
+		return m.historyNewer(), nil
 
 	case key.Matches(msg, m.keys.Tab):
 		cmd := m.setFocus((m.focus + 1) % focusCount)
@@ -99,6 +117,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.activeChannelID = it.id
 			m.activeChannelName = it.name
 			m.status = "loading " + it.name + "…"
+			// Don't carry a draft or edit state across channels.
+			m.exitEdit(false)
+			m.composer.Reset()
 			cmd := m.setFocus(focusComposer)
 			return m, tea.Batch(cmd, m.loadPostsCmd(it.id))
 		}
@@ -108,16 +129,81 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.delegateToFocused(msg)
 }
 
-// sendMessage posts the composer's contents to the active channel.
+// sendMessage posts the composer's contents to the active channel, or saves the
+// edit if the user is editing one of their previous messages.
 func (m Model) sendMessage() (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.composer.Value())
 	if text == "" || m.activeChannelID == "" {
 		return m, nil
 	}
 	ch := m.activeChannelID
+
+	if m.editing {
+		postID := m.ownPosts[m.editIndex].id
+		m.composer.Reset()
+		m.exitEdit(false)
+		m.status = "saving edit…"
+		return m, m.editCmd(ch, postID, text)
+	}
+
 	m.composer.Reset()
 	m.status = "sending…"
 	return m, m.sendCmd(ch, text)
+}
+
+// historyOlder steps to an older own message, entering edit mode the first time
+// and saving the in-progress draft.
+func (m Model) historyOlder() Model {
+	if len(m.ownPosts) == 0 {
+		return m
+	}
+	switch {
+	case !m.editing:
+		m.savedDraft = m.composer.Value()
+		m.editing = true
+		m.editIndex = 0
+	case m.editIndex < len(m.ownPosts)-1:
+		m.editIndex++
+	default:
+		return m // already at the oldest
+	}
+	m.loadEditTarget()
+	return m
+}
+
+// historyNewer steps toward newer messages, restoring the draft past the newest.
+func (m Model) historyNewer() Model {
+	if !m.editing {
+		return m
+	}
+	if m.editIndex > 0 {
+		m.editIndex--
+		m.loadEditTarget()
+		return m
+	}
+	return m.cancelEdit() // stepped past the newest → back to the draft
+}
+
+// cancelEdit leaves edit mode and restores the saved draft.
+func (m Model) cancelEdit() Model {
+	m.exitEdit(true)
+	return m
+}
+
+func (m *Model) loadEditTarget() {
+	p := m.ownPosts[m.editIndex]
+	m.composer.SetValue(p.message)
+	m.status = fmt.Sprintf("editing your message %d/%d · ctrl+s saves · esc cancels",
+		m.editIndex+1, len(m.ownPosts))
+}
+
+func (m *Model) exitEdit(restoreDraft bool) {
+	if restoreDraft {
+		m.composer.SetValue(m.savedDraft)
+	}
+	m.editing = false
+	m.editIndex = 0
+	m.savedDraft = ""
 }
 
 // delegateToFocused forwards a message to whichever component holds focus.
@@ -211,6 +297,15 @@ func (m Model) sendCmd(channelID, text string) tea.Cmd {
 	}
 }
 
+func (m Model) editCmd(channelID, postID, text string) tea.Cmd {
+	return func() tea.Msg {
+		if err := m.mm.EditPost(m.ctx, postID, text); err != nil {
+			return errMsg{err}
+		}
+		return sentMsg{channelID: channelID}
+	}
+}
+
 func (m Model) loadChannelsCmd() tea.Cmd {
 	return func() tea.Msg {
 		chans, _, err := m.mm.Client.GetChannelsForTeamForUser(m.ctx, m.mm.TeamID, m.mm.UserID, false, "")
@@ -287,7 +382,15 @@ func (m Model) loadPostsCmd(channelID string) tea.Cmd {
 			fmt.Fprintf(&b, "**%s · %s**\n\n%s\n\n---\n\n", ts, usernames[p.UserId], p.Message)
 		}
 
-		return postsLoadedMsg{channelID: channelID, markdown: b.String(), count: len(posts.Order)}
+		// posts.Order is newest-first, so this collects own posts newest-first too.
+		var own []ownPost
+		for _, id := range posts.Order {
+			if p := posts.Posts[id]; p.UserId == m.mm.UserID {
+				own = append(own, ownPost{id: p.Id, message: p.Message})
+			}
+		}
+
+		return postsLoadedMsg{channelID: channelID, markdown: b.String(), count: len(posts.Order), ownPosts: own}
 	}
 }
 
