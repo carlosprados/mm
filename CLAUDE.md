@@ -127,6 +127,13 @@ TUI extras that stay leveled with the other surfaces:
   `mm alias` / `manage_alias`.
 - **Emoji picker** on a trailing `:query` in the composer (fuzzy search via
   `kyokomi/emoji`); inserts the unicode glyph.
+- **Unread-first sidebar**: channels/DMs with unread messages sort to the top
+  (`●` bullet + mention count), via `client.ChannelMembers` (LastViewedAt vs
+  channel LastPostAt). Opening a channel calls `client.MarkChannelRead`
+  (`ViewChannel`) — a server-side side effect that also clears unread on
+  web/mobile. The sidebar reloads on the schedule tick (selection preserved).
+- **Scheduled-messages viewer**: `s` from the sidebar lists pending scheduled
+  messages from `internal/schedule`; `x` cancels the selected one.
 - **Schedule** the composed message with `ctrl+t` (same store as `mm schedule` /
   `schedule_message`). This server has no scheduled-posts license, so delivery
   is **client-side**: the TUI's delivery loop (`scheduleTickCmd`) sends due

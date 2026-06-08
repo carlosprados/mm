@@ -10,6 +10,9 @@ type channelsLoadedMsg struct {
 	items []list.Item
 }
 
+// channelsReloadMsg requests a sidebar refresh (e.g. after marking a channel read).
+type channelsReloadMsg struct{}
+
 type postsLoadedMsg struct {
 	channelID string
 	markdown  string
