@@ -224,6 +224,7 @@ mm alias rm luisete
 | `mm whoami`   | Show the active session and its source  |
 | `mm version`  | Print version, commit and build date     |
 | `mm mcp`      | Run as MCP server on stdio               |
+| `mm tui`      | Launch the interactive terminal UI       |
 
 ---
 
