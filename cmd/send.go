@@ -3,10 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/spf13/cobra"
 
-	"github.com/carlosprados/mm/internal/alias"
 	"github.com/carlosprados/mm/internal/client"
 )
 
@@ -26,41 +24,8 @@ var sendCmd = &cobra.Command{
 			return err
 		}
 
-		var channelID string
-
-		if sendUser != "" {
-			// DM: resolve alias → username → userID → DM channel
-			store, err := alias.Load()
-			if err != nil {
-				return err
-			}
-			username := store.Resolve(sendUser)
-			user, _, err := mm.Client.GetUserByUsername(ctx, username, "")
-			if err != nil {
-				return fmt.Errorf("user not found: %w", err)
-			}
-			channelID, err = mm.GetDirectChannelWith(ctx, user.Id)
-			if err != nil {
-				return err
-			}
-		} else if sendChannel != "" {
-			ch, _, err := mm.Client.GetChannelByName(ctx, sendChannel, mm.TeamID, "")
-			if err != nil {
-				return fmt.Errorf("channel not found: %w", err)
-			}
-			channelID = ch.Id
-		} else {
-			return fmt.Errorf("specify --channel or --user")
-		}
-
-		post := &model.Post{
-			ChannelId: channelID,
-			Message:   sendMessage,
-		}
-
-		_, _, err = mm.Client.CreatePost(ctx, post)
-		if err != nil {
-			return fmt.Errorf("could not send message: %w", err)
+		if _, _, err := mm.Send(ctx, client.Target{Channel: sendChannel, User: sendUser}, sendMessage); err != nil {
+			return err
 		}
 
 		fmt.Println("Message sent.")
@@ -70,7 +35,7 @@ var sendCmd = &cobra.Command{
 
 func init() {
 	sendCmd.Flags().StringVarP(&sendChannel, "channel", "c", "", "Target channel name")
-	sendCmd.Flags().StringVarP(&sendUser, "user", "u", "", "Target username (DM)")
+	sendCmd.Flags().StringVarP(&sendUser, "user", "u", "", "Target username or alias (DM)")
 	sendCmd.Flags().StringVarP(&sendMessage, "message", "m", "", "Message to send (required)")
 	sendCmd.MarkFlagRequired("message")
 	rootCmd.AddCommand(sendCmd)
