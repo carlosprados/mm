@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,10 +18,13 @@ type focusArea int
 const (
 	focusSidebar focusArea = iota
 	focusMessages
+	focusComposer
+	focusCount = 3
 )
 
 const (
 	sidebarWidth  = 32 // total, including border
+	composerLines = 3  // textarea visible rows
 	defaultLimit  = 30
 	pollInterval  = 5 // seconds
 	defaultWrapAt = 80
@@ -35,6 +39,7 @@ type Model struct {
 	keys      keyMap
 	list      list.Model
 	viewport  viewport.Model
+	composer  textarea.Model
 	renderer  *glamour.TermRenderer
 	styleName string // glamour style resolved once at startup (no TTY query in the loop)
 
@@ -83,18 +88,36 @@ func New(ctx context.Context, mm *client.MM) Model {
 		glamour.WithWordWrap(defaultWrapAt),
 	)
 
+	ta := textarea.New()
+	ta.Placeholder = "Write a message… (ctrl+s to send)"
+	ta.ShowLineNumbers = false
+	ta.SetHeight(composerLines)
+	ta.CharLimit = 0 // unlimited
+
 	return Model{
 		ctx:       ctx,
 		mm:        mm,
 		keys:      defaultKeys(),
 		list:      l,
 		viewport:  viewport.New(0, 0),
+		composer:  ta,
 		renderer:  r,
 		styleName: styleName,
 		focus:     focusSidebar,
 		limit:     defaultLimit,
 		status:    "Select a channel and press enter",
 	}
+}
+
+// setFocus moves focus and toggles the composer cursor accordingly. It returns
+// the blink command when the composer gains focus.
+func (m *Model) setFocus(area focusArea) tea.Cmd {
+	m.focus = area
+	if area == focusComposer {
+		return m.composer.Focus()
+	}
+	m.composer.Blur()
+	return nil
 }
 
 func (m Model) Init() tea.Cmd {

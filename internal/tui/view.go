@@ -9,29 +9,30 @@ func (m Model) View() string {
 		return "Initializing…"
 	}
 
-	paneInnerH := m.height - 1 - 2 // footer + pane border
-	sidebarInner := sidebarWidth - 2
-	msgInner := m.width - sidebarWidth - 2
-	if msgInner < 10 {
-		msgInner = 10
-	}
+	d := m.layout()
 
 	sidebar := paneStyle(m.focus == focusSidebar).
-		Width(sidebarInner).
-		Height(paneInnerH).
+		Width(d.sidebarInnerW).
+		Height(d.sidebarInnerH).
 		Render(m.list.View())
 
 	messages := paneStyle(m.focus == focusMessages).
-		Width(msgInner).
-		Height(paneInnerH).
+		Width(d.msgInnerW).
+		Height(d.messagesInnerH).
 		Render(m.viewport.View())
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, messages)
+	composer := paneStyle(m.focus == focusComposer).
+		Width(d.msgInnerW).
+		Height(composerLines).
+		Render(m.composer.View())
+
+	right := lipgloss.JoinVertical(lipgloss.Left, messages, composer)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
 	return lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
 }
 
 func (m Model) footer() string {
-	help := "tab switch · j/k move · enter open · / filter · r refresh · q quit"
+	help := "tab switch · enter open · ctrl+s send · / filter · r refresh · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }
