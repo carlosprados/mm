@@ -1010,10 +1010,18 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 				dmOtherIDs = append(dmOtherIDs, ch.GetOtherUserIdForDM(m.mm.UserID))
 			}
 		}
+		// Resolve DM participants. Track which are active so we can hide DMs with
+		// deactivated users (DeleteAt > 0).
 		names := map[string]string{}
+		active := map[string]bool{}
 		if len(dmOtherIDs) > 0 {
-			if names, err = m.mm.ResolveUsernames(m.ctx, dmOtherIDs); err != nil {
-				return errMsg{err}
+			users, _, uerr := m.mm.Client.GetUsersByIds(m.ctx, dmOtherIDs)
+			if uerr != nil {
+				return errMsg{fmt.Errorf("could not resolve users: %w", uerr)}
+			}
+			for _, u := range users {
+				names[u.Id] = "@" + u.Username
+				active[u.Id] = u.DeleteAt == 0
 			}
 		}
 
@@ -1029,7 +1037,11 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 			var name, desc, username string
 			switch ch.Type {
 			case model.ChannelTypeDirect:
-				username = strings.TrimPrefix(names[ch.GetOtherUserIdForDM(m.mm.UserID)], "@")
+				other := ch.GetOtherUserIdForDM(m.mm.UserID)
+				if !active[other] {
+					continue // hide DMs with deactivated (or unknown) users
+				}
+				username = strings.TrimPrefix(names[other], "@")
 				name, desc = dmLabel(username, aliases)
 			default:
 				name = ch.DisplayName
