@@ -109,7 +109,7 @@ mm/
         ├── view.go        — lipgloss layout (sidebar + messages + emoji popup + composer + footer)
         ├── keys.go        — app-level keymap
         ├── messages.go    — tea.Msg types
-        ├── emoji.go       — emoji dataset + ":query" search (kyokomi/emoji)
+        ├── emoji.go       — emoji dataset + ":query" search (model.SystemEmojis)
         └── styles.go      — lipgloss styles
 ```
 
@@ -131,7 +131,7 @@ TUI extras that stay leveled with the other surfaces:
 - **Alias** a DM's user with `a` — writes the same `aliases.json` as
   `mm alias` / `manage_alias`.
 - **Emoji picker** on a trailing `:query` in the composer (fuzzy search via
-  `kyokomi/emoji`); inserts the unicode glyph.
+  `model.SystemEmojis` — the exact names Mattermost accepts); inserts the glyph.
 - **Favorites + unread-first sidebar**: favorited channels/DMs (★) pin to the
   top via `client.FavoriteChannels` (`favorite_channel` preferences), then
   unread (`●` + mention count) via `client.ChannelMembers` (LastViewedAt vs
