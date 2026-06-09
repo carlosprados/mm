@@ -29,7 +29,8 @@ const (
 	sidebarWidth      = 32 // total, including border
 	composerLines     = 3  // textarea visible rows
 	defaultLimit      = 30
-	scheduleInterval  = 20 // seconds — scheduled-message delivery + safety refresh
+	maxLoadedPosts    = 400 // sliding-window cap on messages held in memory per channel
+	scheduleInterval  = 20  // seconds — scheduled-message delivery + safety refresh
 	reconnectInterval = 3  // seconds — WebSocket reconnect backoff
 	defaultWrapAt     = 80
 )
@@ -76,10 +77,12 @@ type Model struct {
 	scheduleView       []schedule.Item
 	scheduleViewCursor int
 
-	// posts holds the active channel's displayed messages (for the copy picker).
-	posts      []postLine
-	copyMode   bool
-	copyCursor int
+	// posts holds the active channel's loaded messages (chronological). The set
+	// grows upward via loadOlder and downward via live newer events.
+	posts        []postLine
+	loadingOlder bool
+	copyMode     bool
+	copyCursor   int
 
 	// image picker: 'i' lists image attachments in the channel; selecting one
 	// downloads it and renders it inline via chafa (suspending the TUI).

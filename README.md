@@ -281,11 +281,12 @@ haven't read: they sort to the top (most recent first) with a `●` bullet and a
 `(N)` mention count. Opening a channel marks it read (server-side, so it also
 clears on web/mobile). New messages bubble channels up live.
 
-**Scroll & copy.** `tab` to the message pane, then `j`/`k` / `pgup`/`pgdn` to
-scroll; your position is kept across background refreshes (it only snaps to the
-bottom if you were already there). Press `y` to copy any message's Markdown
-source to the clipboard — handy for code blocks and formatted text alike.
-Clipboard needs `xclip`/`xsel` (X11) or `wl-copy` (Wayland).
+**Scroll, history & copy.** `tab` to the message pane, then `j`/`k` /
+`pgup`/`pgdn` to scroll; your position is kept as new messages arrive (it only
+snaps to the bottom if you were already there). Scrolling up at the top **loads
+older history** (paged), keeping your place. Press `y` to copy any message's
+Markdown source to the clipboard — handy for code blocks and formatted text
+alike. Clipboard needs `xclip`/`xsel` (X11) or `wl-copy` (Wayland).
 
 **Images.** Press `i` on the message pane to pick an image attachment; it is
 downloaded and rendered **inline** with [`chafa`](https://hpjansson.org/chafa/),

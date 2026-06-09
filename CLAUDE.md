@@ -143,6 +143,15 @@ TUI extras that stay leveled with the other surfaces:
   reloads (only `GotoBottom` when already at bottom). `y` opens a copy picker
   that writes a message's Markdown source to the clipboard via
   `github.com/atotto/clipboard` (xclip/xsel/wl-copy backends).
+- **Accumulated history**: the message pane keeps a growing `[]postLine`
+  (chronological). `loadPostsCmd` replaces it (open/refresh); scrolling up at the
+  top calls `loadOlderCmd` (`GetPostsBefore`) and prepends, pushing `YOffset`
+  down by the added line count to keep position; live `posted` events call
+  `loadNewerCmd` (`GetPostsAfter`) and append. `markdownFor`/`renderPosts`
+  re-render the blob from `m.posts`. A sliding window caps `m.posts` at
+  `maxLoadedPosts` (400): older-prepend drops the newest beyond the cap
+  (`keepOldest`), live-append drops the oldest but only while at the bottom
+  (`keepNewest`), so reading history is never yanked.
 - **Inline images**: `i` opens an image-attachment picker (file infos via
   `GetFileInfosForPost`, filtered by `image/*` MimeType). Selecting one downloads
   it (`GetFile`) to a temp file and renders it with `chafa` via

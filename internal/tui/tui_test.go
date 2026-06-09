@@ -180,6 +180,24 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
+// TestWindowTrim checks the sliding-window helpers keep the right end.
+func TestWindowTrim(t *testing.T) {
+	posts := []postLine{{postID: "1"}, {postID: "2"}, {postID: "3"}, {postID: "4"}}
+
+	newest := keepNewest(posts, 2)
+	if len(newest) != 2 || newest[0].postID != "3" || newest[1].postID != "4" {
+		t.Errorf("keepNewest = %v", newest)
+	}
+	oldest := keepOldest(posts, 2)
+	if len(oldest) != 2 || oldest[0].postID != "1" || oldest[1].postID != "2" {
+		t.Errorf("keepOldest = %v", oldest)
+	}
+	// Under the cap: unchanged.
+	if got := keepNewest(posts, 10); len(got) != 4 {
+		t.Errorf("keepNewest under cap changed length: %d", len(got))
+	}
+}
+
 // TestDMLabel checks alias-aware DM labelling for the sidebar.
 func TestDMLabel(t *testing.T) {
 	store := &alias.Store{Aliases: map[string]string{"luis": "luisdavid.francisco"}}

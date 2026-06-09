@@ -38,12 +38,22 @@ type channelsLoadedMsg struct {
 // channelsReloadMsg requests a sidebar refresh (e.g. after marking a channel read).
 type channelsReloadMsg struct{}
 
+// postsLoadedMsg replaces the loaded set (initial open, refresh, after sending).
 type postsLoadedMsg struct {
 	channelID string
-	markdown  string
-	count     int
-	ownPosts  []ownPost  // current user's posts, newest-first (for up-arrow editing)
-	posts     []postLine // all displayed posts, chronological (for the copy picker)
+	posts     []postLine // chronological
+}
+
+// olderLoadedMsg prepends history fetched by scrolling up.
+type olderLoadedMsg struct {
+	channelID string
+	posts     []postLine
+}
+
+// newerLoadedMsg appends messages that arrived live (WebSocket).
+type newerLoadedMsg struct {
+	channelID string
+	posts     []postLine
 }
 
 // copiedMsg reports the result of copying a message to the clipboard.
