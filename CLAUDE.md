@@ -132,9 +132,11 @@ TUI extras that stay leveled with the other surfaces:
   `mm alias` / `manage_alias`.
 - **Emoji picker** on a trailing `:query` in the composer (fuzzy search via
   `kyokomi/emoji`); inserts the unicode glyph.
-- **Unread-first sidebar**: channels/DMs with unread messages sort to the top
-  (`●` bullet + mention count), via `client.ChannelMembers` (LastViewedAt vs
-  channel LastPostAt). Opening a channel calls `client.MarkChannelRead`
+- **Favorites + unread-first sidebar**: favorited channels/DMs (★) pin to the
+  top via `client.FavoriteChannels` (`favorite_channel` preferences), then
+  unread (`●` + mention count) via `client.ChannelMembers` (LastViewedAt vs
+  channel LastPostAt). Order key in `channelLess`: favorite → unread → recency →
+  type → name. Opening a channel calls `client.MarkChannelRead`
   (`ViewChannel`) — a server-side side effect that also clears unread on
   web/mobile. The sidebar reloads on the schedule tick (selection preserved).
 - **Scheduled-messages viewer**: `s` from the sidebar lists pending scheduled

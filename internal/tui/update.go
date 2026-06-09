@@ -1031,6 +1031,9 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 		// Per-channel read state for unread prioritization (best-effort).
 		members, _ := m.mm.ChannelMembers(m.ctx)
 
+		// Favorited channels/DMs are pinned to the top.
+		favs, _ := m.mm.FavoriteChannels(m.ctx)
+
 		items := make([]channelItem, 0, len(chans))
 		for _, ch := range chans {
 			typ := channelTypeLabel(ch.Type)
@@ -1051,7 +1054,7 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 				desc = "# " + typ
 			}
 
-			it := channelItem{id: ch.Id, name: name, desc: desc, typ: typ, username: username, lastPostAt: ch.LastPostAt}
+			it := channelItem{id: ch.Id, name: name, desc: desc, typ: typ, username: username, lastPostAt: ch.LastPostAt, favorite: favs[ch.Id]}
 			if mbr := members[ch.Id]; mbr != nil {
 				it.unread = ch.LastPostAt > mbr.LastViewedAt
 				it.mentions = int(mbr.MentionCount)
@@ -1195,9 +1198,12 @@ func (m Model) loadNewerCmd(channelID string) tea.Cmd {
 	}
 }
 
-// channelLess orders the sidebar: unread first (most recent activity on top),
-// then named channels, then DMs, alphabetical within the read groups.
+// channelLess orders the sidebar: favorites first, then unread (most recent
+// activity on top), then named channels, then DMs, alphabetical within groups.
 func channelLess(a, b channelItem) bool {
+	if a.favorite != b.favorite {
+		return a.favorite
+	}
 	if a.unread != b.unread {
 		return a.unread
 	}
