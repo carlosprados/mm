@@ -120,6 +120,19 @@ func (mm *MM) ChannelMembers(ctx context.Context) (map[string]*model.ChannelMemb
 	return out, nil
 }
 
+// React adds an emoji reaction (by short name, no colons) to a post.
+func (mm *MM) React(ctx context.Context, postID, emojiName string) error {
+	_, _, err := mm.Client.SaveReaction(ctx, &model.Reaction{
+		UserId:    mm.UserID,
+		PostId:    postID,
+		EmojiName: emojiName,
+	})
+	if err != nil {
+		return fmt.Errorf("could not add reaction: %w", err)
+	}
+	return nil
+}
+
 // FavoriteChannels returns the set of channel IDs the user has favorited
 // (Mattermost stores favorites as "favorite_channel" preferences).
 func (mm *MM) FavoriteChannels(ctx context.Context) (map[string]bool, error) {

@@ -154,6 +154,10 @@ TUI extras that stay leveled with the other surfaces:
   `maxLoadedPosts` (400): older-prepend drops the newest beyond the cap
   (`keepOldest`), live-append drops the oldest but only while at the bottom
   (`keepNewest`), so reading history is never yanked.
+- **Reactions**: `+` opens a two-phase flow (pick message → search emoji) and
+  calls `client.React` (`SaveReaction`). Existing reactions are rendered under
+  each message from `post.Metadata.Reactions` (no extra calls), glyphs resolved
+  via `emojiGlyph`.
 - **Inline images**: `i` opens an image-attachment picker (file infos via
   `GetFileInfosForPost`, filtered by `image/*` MimeType). Selecting one downloads
   it (`GetFile`) to a temp file and renders it with `chafa` via

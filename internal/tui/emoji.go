@@ -29,6 +29,24 @@ func buildEmojiList() []emojiEntry {
 	return list
 }
 
+// emojiByName maps a short name (no colons) to its glyph, for rendering reactions.
+var emojiByName = func() map[string]string {
+	cm := emoji.CodeMap()
+	m := make(map[string]string, len(cm))
+	for code, glyph := range cm {
+		m[strings.Trim(code, ":")] = glyph
+	}
+	return m
+}()
+
+// emojiGlyph returns the glyph for a short name, or :name: if unknown (custom).
+func emojiGlyph(name string) string {
+	if g, ok := emojiByName[name]; ok {
+		return g
+	}
+	return ":" + name + ":"
+}
+
 // emojiQueryRe matches a trailing ":word" token (the emoji being typed), at
 // least 2 chars. The colon must start the value or follow whitespace, so
 // "10:30" doesn't trigger.
