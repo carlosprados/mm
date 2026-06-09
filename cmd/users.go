@@ -23,6 +23,9 @@ var usersCmd = &cobra.Command{
 		}
 
 		for _, u := range users {
+			if u.DeleteAt != 0 {
+				continue // skip deactivated users
+			}
 			fmt.Printf("@%-20s %s %s\n", u.Username, u.FirstName, u.LastName)
 		}
 		return nil

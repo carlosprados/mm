@@ -155,7 +155,7 @@ func (m Model) footer() string {
 	if m.imagePickMode {
 		return footerStyle.Width(m.width).Render("images · j/k move · enter view · esc close")
 	}
-	help := "enter open · s scheduled · a alias · ctrl+s send · : emoji · y copy · i images · q quit"
+	help := "enter open · scroll-up=history · s scheduled · a alias · ctrl+s send · y copy · i images · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }

@@ -119,7 +119,12 @@ A third surface alongside the CLI and MCP, built on Bubble Tea + bubbles +
 lipgloss, with Markdown rendered by glamour. It reuses `client.MM` and the
 shared messaging service; it does **not** introduce its own Mattermost logic.
 Auth is host-side (saved session / env), like `mm mcp`, so it has no MCP
-counterpart. Active channel is refreshed by polling (no WebSocket yet).
+counterpart. Updates are **real-time over WebSocket** (`client.ConnectWS` /
+`model.WebSocketClient`): `posted`/`post_edited`/`post_deleted` events refetch
+the active channel and bubble unread in the sidebar. A forwarder goroutine
+drains the ping/response channels; on disconnect the TUI reconnects with a
+short backoff. The 20s schedule tick doubles as a safety refresh while the
+socket is down.
 
 TUI extras that stay leveled with the other surfaces:
 - **Edit** your own messages with `↑` (same as `mm edit` / `edit_message`).
@@ -127,9 +132,11 @@ TUI extras that stay leveled with the other surfaces:
   `mm alias` / `manage_alias`.
 - **Emoji picker** on a trailing `:query` in the composer (fuzzy search via
   `kyokomi/emoji`); inserts the unicode glyph.
-- **Unread-first sidebar**: channels/DMs with unread messages sort to the top
-  (`●` bullet + mention count), via `client.ChannelMembers` (LastViewedAt vs
-  channel LastPostAt). Opening a channel calls `client.MarkChannelRead`
+- **Favorites + unread-first sidebar**: favorited channels/DMs (★) pin to the
+  top via `client.FavoriteChannels` (`favorite_channel` preferences), then
+  unread (`●` + mention count) via `client.ChannelMembers` (LastViewedAt vs
+  channel LastPostAt). Order key in `channelLess`: favorite → unread → recency →
+  type → name. Opening a channel calls `client.MarkChannelRead`
   (`ViewChannel`) — a server-side side effect that also clears unread on
   web/mobile. The sidebar reloads on the schedule tick (selection preserved).
 - **Scheduled-messages viewer**: `s` from the sidebar lists pending scheduled
@@ -138,6 +145,15 @@ TUI extras that stay leveled with the other surfaces:
   reloads (only `GotoBottom` when already at bottom). `y` opens a copy picker
   that writes a message's Markdown source to the clipboard via
   `github.com/atotto/clipboard` (xclip/xsel/wl-copy backends).
+- **Accumulated history**: the message pane keeps a growing `[]postLine`
+  (chronological). `loadPostsCmd` replaces it (open/refresh); scrolling up at the
+  top calls `loadOlderCmd` (`GetPostsBefore`) and prepends, pushing `YOffset`
+  down by the added line count to keep position; live `posted` events call
+  `loadNewerCmd` (`GetPostsAfter`) and append. `markdownFor`/`renderPosts`
+  re-render the blob from `m.posts`. A sliding window caps `m.posts` at
+  `maxLoadedPosts` (400): older-prepend drops the newest beyond the cap
+  (`keepOldest`), live-append drops the oldest but only while at the bottom
+  (`keepNewest`), so reading history is never yanked.
 - **Inline images**: `i` opens an image-attachment picker (file infos via
   `GetFileInfosForPost`, filtered by `image/*` MimeType). Selecting one downloads
   it (`GetFile`) to a temp file and renders it with `chafa` via

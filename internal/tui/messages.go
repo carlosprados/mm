@@ -1,6 +1,31 @@
 package tui
 
-import "github.com/charmbracelet/bubbles/list"
+import (
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/mattermost/mattermost/server/public/model"
+
+	"github.com/carlosprados/mm/internal/client"
+)
+
+// --- WebSocket (real-time) ---
+
+// wsConnectedMsg carries a freshly connected WebSocket connection.
+type wsConnectedMsg struct {
+	ws *client.WSConn
+}
+
+// wsEventMsg is one server-pushed event.
+type wsEventMsg struct {
+	ev *model.WebSocketEvent
+}
+
+// wsClosedMsg signals the connection dropped (or failed to open).
+type wsClosedMsg struct {
+	err error
+}
+
+// wsReconnectMsg fires after the reconnect backoff.
+type wsReconnectMsg struct{}
 
 // tea.Msg types produced by async commands. The Update loop never blocks on
 // the network; every Mattermost call runs inside a tea.Cmd and reports back
@@ -13,12 +38,22 @@ type channelsLoadedMsg struct {
 // channelsReloadMsg requests a sidebar refresh (e.g. after marking a channel read).
 type channelsReloadMsg struct{}
 
+// postsLoadedMsg replaces the loaded set (initial open, refresh, after sending).
 type postsLoadedMsg struct {
 	channelID string
-	markdown  string
-	count     int
-	ownPosts  []ownPost  // current user's posts, newest-first (for up-arrow editing)
-	posts     []postLine // all displayed posts, chronological (for the copy picker)
+	posts     []postLine // chronological
+}
+
+// olderLoadedMsg prepends history fetched by scrolling up.
+type olderLoadedMsg struct {
+	channelID string
+	posts     []postLine
+}
+
+// newerLoadedMsg appends messages that arrived live (WebSocket).
+type newerLoadedMsg struct {
+	channelID string
+	posts     []postLine
 }
 
 // copiedMsg reports the result of copying a message to the clipboard.
@@ -65,9 +100,6 @@ type scheduledDeliveredMsg struct {
 	channelID string
 	err       error
 }
-
-// tickMsg drives the polling refresh of the active channel.
-type tickMsg struct{}
 
 // scheduleTickMsg drives the scheduled-message delivery loop.
 type scheduleTickMsg struct{}

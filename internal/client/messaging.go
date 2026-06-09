@@ -120,6 +120,22 @@ func (mm *MM) ChannelMembers(ctx context.Context) (map[string]*model.ChannelMemb
 	return out, nil
 }
 
+// FavoriteChannels returns the set of channel IDs the user has favorited
+// (Mattermost stores favorites as "favorite_channel" preferences).
+func (mm *MM) FavoriteChannels(ctx context.Context) (map[string]bool, error) {
+	prefs, _, err := mm.Client.GetPreferencesByCategory(ctx, mm.UserID, model.PreferenceCategoryFavoriteChannel)
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch favorites: %w", err)
+	}
+	favs := make(map[string]bool, len(prefs))
+	for _, p := range prefs {
+		if p.Value == "true" {
+			favs[p.Name] = true
+		}
+	}
+	return favs, nil
+}
+
 // MarkChannelRead marks a channel as read for the current user (server-side, so
 // it also clears the unread state on the web/mobile clients).
 func (mm *MM) MarkChannelRead(ctx context.Context, channelID string) error {
