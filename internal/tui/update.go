@@ -66,23 +66,68 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.channelID != m.activeChannelID {
 			return m, nil
 		}
-		rendered, err := m.renderer.Render(msg.markdown)
-		if err != nil {
-			rendered = msg.markdown
-		}
-		// Preserve the reader's scroll position across polling reloads: only jump
-		// to the bottom if they were already there.
+		// Preserve the reader's scroll position: only jump to the bottom if they
+		// were already there.
 		atBottom := m.viewport.AtBottom()
-		m.viewport.SetContent(rendered)
+		m.posts = msg.posts
+		m.renderPosts()
 		if atBottom {
 			m.viewport.GotoBottom()
 		}
-		m.posts = msg.posts
-		// Don't shift the edit history out from under an in-progress edit.
 		if !m.editing {
-			m.ownPosts = msg.ownPosts
+			m.ownPosts = m.ownPostsFrom(m.posts)
 		}
-		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, msg.count)
+		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, len(m.posts))
+		return m, nil
+
+	case olderLoadedMsg:
+		m.loadingOlder = false
+		if msg.channelID != m.activeChannelID {
+			return m, nil
+		}
+		if len(msg.posts) == 0 {
+			m.status = "no older messages"
+			return m, nil
+		}
+		// Prepend and keep the current message under the viewport by pushing the
+		// y-offset down by the number of lines we added at the top.
+		before := m.viewport.TotalLineCount()
+		m.posts = append(msg.posts, m.posts...)
+		m.renderPosts()
+		added := m.viewport.TotalLineCount() - before
+		m.viewport.SetYOffset(m.viewport.YOffset + added)
+		// Sliding window: drop the newest beyond the cap (below the fold, so the
+		// scroll position above is unaffected).
+		if len(m.posts) > maxLoadedPosts {
+			m.posts = keepOldest(m.posts, maxLoadedPosts)
+			m.renderPosts()
+		}
+		if !m.editing {
+			m.ownPosts = m.ownPostsFrom(m.posts)
+		}
+		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, len(m.posts))
+		return m, nil
+
+	case newerLoadedMsg:
+		if msg.channelID != m.activeChannelID || len(msg.posts) == 0 {
+			return m, nil
+		}
+		atBottom := m.viewport.AtBottom()
+		m.posts = append(m.posts, msg.posts...)
+		// Sliding window: when at the bottom, drop the oldest beyond the cap. We
+		// only trim while at the bottom so scrolling up to read history isn't
+		// yanked out from under the reader.
+		if atBottom && len(m.posts) > maxLoadedPosts {
+			m.posts = keepNewest(m.posts, maxLoadedPosts)
+		}
+		m.renderPosts()
+		if atBottom {
+			m.viewport.GotoBottom()
+		}
+		if !m.editing {
+			m.ownPosts = m.ownPostsFrom(m.posts)
+		}
+		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, len(m.posts))
 		return m, nil
 
 	case sentMsg:
@@ -176,7 +221,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				chID = b.ChannelId
 			}
 			if chID != "" && chID == m.activeChannelID {
-				cmds = append(cmds, m.loadPostsCmd(chID))
+				if msg.ev.EventType() == model.WebsocketEventPosted {
+					cmds = append(cmds, m.loadNewerCmd(chID)) // append, keep history
+				} else {
+					cmds = append(cmds, m.loadPostsCmd(chID)) // edit/delete: refresh window
+				}
 			}
 			if m.idleForReload() {
 				cmds = append(cmds, m.loadChannelsCmd()) // bubble unread live
@@ -232,6 +281,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case m.emojiActive && msg.String() == "esc":
 		m.closeEmoji()
 		return m.applyLayout(), nil
+
+	// At the top of the message pane, scrolling up loads older history.
+	case m.focus == focusMessages && !m.loadingOlder && m.activeChannelID != "" &&
+		m.viewport.AtTop() && (msg.String() == "up" || msg.String() == "k" || msg.String() == "pgup"):
+		m.loadingOlder = true
+		m.status = "loading older…"
+		return m, m.loadOlderCmd(m.activeChannelID)
 
 	case key.Matches(msg, m.keys.Send):
 		return m.sendMessage()
@@ -1003,40 +1059,127 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 	}
 }
 
+// buildPostLines resolves usernames and converts a PostList (newest-first Order)
+// into chronological postLines.
+func (m Model) buildPostLines(posts *model.PostList) ([]postLine, error) {
+	ids := make([]string, 0, len(posts.Order))
+	for _, id := range posts.Order {
+		ids = append(ids, posts.Posts[id].UserId)
+	}
+	usernames, err := m.mm.ResolveUsernames(m.ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	lines := make([]postLine, 0, len(posts.Order))
+	for i := len(posts.Order) - 1; i >= 0; i-- {
+		p := posts.Posts[posts.Order[i]]
+		lines = append(lines, postLine{
+			postID:  p.Id,
+			time:    time.UnixMilli(p.CreateAt).Format("15:04"),
+			author:  usernames[p.UserId],
+			message: p.Message,
+			fileIDs: p.FileIds,
+		})
+	}
+	return lines, nil
+}
+
+// keepNewest returns at most max posts, dropping the oldest (front).
+func keepNewest(posts []postLine, max int) []postLine {
+	if len(posts) > max {
+		return posts[len(posts)-max:]
+	}
+	return posts
+}
+
+// keepOldest returns at most max posts, dropping the newest (tail).
+func keepOldest(posts []postLine, max int) []postLine {
+	if len(posts) > max {
+		return posts[:max]
+	}
+	return posts
+}
+
+// markdownFor builds the rendered-input blob for a set of posts.
+func markdownFor(lines []postLine) string {
+	var b strings.Builder
+	for _, p := range lines {
+		fmt.Fprintf(&b, "**%s · %s**\n\n%s\n\n---\n\n", p.time, p.author, p.message)
+	}
+	return b.String()
+}
+
+// ownPostsFrom returns the current user's posts newest-first (for up-arrow edit).
+func (m Model) ownPostsFrom(lines []postLine) []ownPost {
+	me := "@" + m.mm.Username
+	var own []ownPost
+	for i := len(lines) - 1; i >= 0; i-- {
+		if lines[i].author == me {
+			own = append(own, ownPost{id: lines[i].postID, message: lines[i].message})
+		}
+	}
+	return own
+}
+
+// renderPosts re-renders m.posts into the viewport via glamour.
+func (m *Model) renderPosts() {
+	md := markdownFor(m.posts)
+	rendered, err := m.renderer.Render(md)
+	if err != nil {
+		rendered = md
+	}
+	m.viewport.SetContent(rendered)
+}
+
 func (m Model) loadPostsCmd(channelID string) tea.Cmd {
 	return func() tea.Msg {
 		posts, _, err := m.mm.Client.GetPostsForChannel(m.ctx, channelID, 0, m.limit, "", false, false)
 		if err != nil {
 			return errMsg{fmt.Errorf("could not fetch posts: %w", err)}
 		}
-
-		ids := make([]string, 0, len(posts.Order))
-		for _, id := range posts.Order {
-			ids = append(ids, posts.Posts[id].UserId)
-		}
-		usernames, err := m.mm.ResolveUsernames(m.ctx, ids)
+		lines, err := m.buildPostLines(posts)
 		if err != nil {
 			return errMsg{err}
 		}
+		return postsLoadedMsg{channelID: channelID, posts: lines}
+	}
+}
 
-		var b strings.Builder
-		var lines []postLine
-		for i := len(posts.Order) - 1; i >= 0; i-- {
-			p := posts.Posts[posts.Order[i]]
-			ts := time.UnixMilli(p.CreateAt).Format("15:04")
-			fmt.Fprintf(&b, "**%s · %s**\n\n%s\n\n---\n\n", ts, usernames[p.UserId], p.Message)
-			lines = append(lines, postLine{postID: p.Id, time: ts, author: usernames[p.UserId], message: p.Message, fileIDs: p.FileIds})
+// loadOlderCmd fetches the page of messages before the oldest one loaded.
+func (m Model) loadOlderCmd(channelID string) tea.Cmd {
+	if len(m.posts) == 0 {
+		return nil
+	}
+	oldest := m.posts[0].postID
+	return func() tea.Msg {
+		posts, _, err := m.mm.Client.GetPostsBefore(m.ctx, channelID, oldest, 0, m.limit, "", false, false)
+		if err != nil {
+			return errMsg{fmt.Errorf("could not fetch older posts: %w", err)}
 		}
-
-		// posts.Order is newest-first, so this collects own posts newest-first too.
-		var own []ownPost
-		for _, id := range posts.Order {
-			if p := posts.Posts[id]; p.UserId == m.mm.UserID {
-				own = append(own, ownPost{id: p.Id, message: p.Message})
-			}
+		lines, err := m.buildPostLines(posts)
+		if err != nil {
+			return errMsg{err}
 		}
+		return olderLoadedMsg{channelID: channelID, posts: lines}
+	}
+}
 
-		return postsLoadedMsg{channelID: channelID, markdown: b.String(), count: len(posts.Order), ownPosts: own, posts: lines}
+// loadNewerCmd fetches messages after the newest one loaded (live updates).
+func (m Model) loadNewerCmd(channelID string) tea.Cmd {
+	if len(m.posts) == 0 {
+		return m.loadPostsCmd(channelID)
+	}
+	newest := m.posts[len(m.posts)-1].postID
+	return func() tea.Msg {
+		posts, _, err := m.mm.Client.GetPostsAfter(m.ctx, channelID, newest, 0, m.limit, "", false, false)
+		if err != nil {
+			return errMsg{fmt.Errorf("could not fetch new posts: %w", err)}
+		}
+		lines, err := m.buildPostLines(posts)
+		if err != nil {
+			return errMsg{err}
+		}
+		return newerLoadedMsg{channelID: channelID, posts: lines}
 	}
 }
 
