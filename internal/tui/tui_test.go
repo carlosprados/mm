@@ -163,6 +163,12 @@ func TestChannelLess(t *testing.T) {
 			break
 		}
 	}
+
+	// A favorite (even read) sorts above a non-favorite unread.
+	fav := channelItem{name: "fav", typ: "public", favorite: true}
+	if !channelLess(fav, unreadNew) {
+		t.Error("favorite should sort before non-favorite unread")
+	}
 }
 
 // TestShellQuote ensures paths are safely single-quoted for the chafa exec.

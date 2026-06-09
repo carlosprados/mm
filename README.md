@@ -276,10 +276,11 @@ the colleague's alias when one is configured. Same auth as the CLI. Updates are
 **real-time over a WebSocket** (it reconnects automatically if the connection
 drops); a `● live` indicator shows when the socket is up.
 
-**Unread first.** The sidebar prioritizes channels/DMs with messages you
-haven't read: they sort to the top (most recent first) with a `●` bullet and an
-`(N)` mention count. Opening a channel marks it read (server-side, so it also
-clears on web/mobile). New messages bubble channels up live.
+**Favorites & unread first.** The sidebar pins your **favorite** channels/DMs
+to the top (marked `★`, the same favorites you set on web/mobile), then
+prioritizes anything with messages you haven't read (`●` bullet, `(N)` mention
+count, most recent first). Opening a channel marks it read (server-side, so it
+also clears on web/mobile). New messages bubble channels up live.
 
 **Scroll, history & copy.** `tab` to the message pane, then `j`/`k` /
 `pgup`/`pgdn` to scroll; your position is kept as new messages arrive (it only

@@ -143,19 +143,24 @@ type channelItem struct {
 	unread     bool   // there are messages the user hasn't read
 	mentions   int    // unread @-mentions
 	lastPostAt int64  // for ordering unread items by recency
+	favorite   bool   // user-favorited channel/DM
 }
 
-// Title renders an unread bullet and mention count, keeping `name` clean for
-// sorting and filtering.
+// Title renders a favorite star and unread bullet (fixed 3-char prefix for
+// alignment), keeping `name` clean for sorting and filtering.
 func (c channelItem) Title() string {
-	if c.unread {
-		t := "● " + c.name
-		if c.mentions > 0 {
-			t += fmt.Sprintf(" (%d)", c.mentions)
-		}
-		return t
+	star, bullet := " ", " "
+	if c.favorite {
+		star = "★"
 	}
-	return "  " + c.name
+	if c.unread {
+		bullet = "●"
+	}
+	t := star + bullet + " " + c.name
+	if c.unread && c.mentions > 0 {
+		t += fmt.Sprintf(" (%d)", c.mentions)
+	}
+	return t
 }
 
 func (c channelItem) Description() string  { return c.desc }
