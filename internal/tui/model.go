@@ -26,12 +26,13 @@ const (
 )
 
 const (
-	sidebarWidth     = 32 // total, including border
-	composerLines    = 3  // textarea visible rows
-	defaultLimit     = 30
-	pollInterval     = 5  // seconds — active channel refresh
-	scheduleInterval = 20 // seconds — scheduled-message delivery check
-	defaultWrapAt    = 80
+	sidebarWidth      = 32 // total, including border
+	composerLines     = 3  // textarea visible rows
+	defaultLimit      = 30
+	maxLoadedPosts    = 400 // sliding-window cap on messages held in memory per channel
+	scheduleInterval  = 20  // seconds — scheduled-message delivery + safety refresh
+	reconnectInterval = 3  // seconds — WebSocket reconnect backoff
+	defaultWrapAt     = 80
 )
 
 // Model is the root Bubble Tea model. It owns the channel sidebar, the message
@@ -66,16 +67,22 @@ type Model struct {
 	// loop doesn't dispatch the same item twice.
 	deliveringIDs map[string]bool
 
+	// WebSocket real-time updates (replaces message polling).
+	ws          *client.WSConn
+	wsConnected bool
+
 	// scheduleView is the in-TUI list of pending scheduled messages (toggled
 	// with 's' from the sidebar).
 	scheduleViewMode   bool
 	scheduleView       []schedule.Item
 	scheduleViewCursor int
 
-	// posts holds the active channel's displayed messages (for the copy picker).
-	posts      []postLine
-	copyMode   bool
-	copyCursor int
+	// posts holds the active channel's loaded messages (chronological). The set
+	// grows upward via loadOlder and downward via live newer events.
+	posts        []postLine
+	loadingOlder bool
+	copyMode     bool
+	copyCursor   int
 
 	// image picker: 'i' lists image attachments in the channel; selecting one
 	// downloads it and renders it inline via chafa (suspending the TUI).
@@ -136,19 +143,24 @@ type channelItem struct {
 	unread     bool   // there are messages the user hasn't read
 	mentions   int    // unread @-mentions
 	lastPostAt int64  // for ordering unread items by recency
+	favorite   bool   // user-favorited channel/DM
 }
 
-// Title renders an unread bullet and mention count, keeping `name` clean for
-// sorting and filtering.
+// Title renders a favorite star and unread bullet (fixed 3-char prefix for
+// alignment), keeping `name` clean for sorting and filtering.
 func (c channelItem) Title() string {
-	if c.unread {
-		t := "● " + c.name
-		if c.mentions > 0 {
-			t += fmt.Sprintf(" (%d)", c.mentions)
-		}
-		return t
+	star, bullet := " ", " "
+	if c.favorite {
+		star = "★"
 	}
-	return "  " + c.name
+	if c.unread {
+		bullet = "●"
+	}
+	t := star + bullet + " " + c.name
+	if c.unread && c.mentions > 0 {
+		t += fmt.Sprintf(" (%d)", c.mentions)
+	}
+	return t
 }
 
 func (c channelItem) Description() string  { return c.desc }
@@ -217,5 +229,5 @@ func (m *Model) setFocus(area focusArea) tea.Cmd {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadChannelsCmd(), tickCmd(), scheduleTickCmd())
+	return tea.Batch(m.loadChannelsCmd(), scheduleTickCmd(), m.connectWSCmd())
 }

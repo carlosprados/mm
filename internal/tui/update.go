@@ -66,23 +66,68 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.channelID != m.activeChannelID {
 			return m, nil
 		}
-		rendered, err := m.renderer.Render(msg.markdown)
-		if err != nil {
-			rendered = msg.markdown
-		}
-		// Preserve the reader's scroll position across polling reloads: only jump
-		// to the bottom if they were already there.
+		// Preserve the reader's scroll position: only jump to the bottom if they
+		// were already there.
 		atBottom := m.viewport.AtBottom()
-		m.viewport.SetContent(rendered)
+		m.posts = msg.posts
+		m.renderPosts()
 		if atBottom {
 			m.viewport.GotoBottom()
 		}
-		m.posts = msg.posts
-		// Don't shift the edit history out from under an in-progress edit.
 		if !m.editing {
-			m.ownPosts = msg.ownPosts
+			m.ownPosts = m.ownPostsFrom(m.posts)
 		}
-		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, msg.count)
+		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, len(m.posts))
+		return m, nil
+
+	case olderLoadedMsg:
+		m.loadingOlder = false
+		if msg.channelID != m.activeChannelID {
+			return m, nil
+		}
+		if len(msg.posts) == 0 {
+			m.status = "no older messages"
+			return m, nil
+		}
+		// Prepend and keep the current message under the viewport by pushing the
+		// y-offset down by the number of lines we added at the top.
+		before := m.viewport.TotalLineCount()
+		m.posts = append(msg.posts, m.posts...)
+		m.renderPosts()
+		added := m.viewport.TotalLineCount() - before
+		m.viewport.SetYOffset(m.viewport.YOffset + added)
+		// Sliding window: drop the newest beyond the cap (below the fold, so the
+		// scroll position above is unaffected).
+		if len(m.posts) > maxLoadedPosts {
+			m.posts = keepOldest(m.posts, maxLoadedPosts)
+			m.renderPosts()
+		}
+		if !m.editing {
+			m.ownPosts = m.ownPostsFrom(m.posts)
+		}
+		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, len(m.posts))
+		return m, nil
+
+	case newerLoadedMsg:
+		if msg.channelID != m.activeChannelID || len(msg.posts) == 0 {
+			return m, nil
+		}
+		atBottom := m.viewport.AtBottom()
+		m.posts = append(m.posts, msg.posts...)
+		// Sliding window: when at the bottom, drop the oldest beyond the cap. We
+		// only trim while at the bottom so scrolling up to read history isn't
+		// yanked out from under the reader.
+		if atBottom && len(m.posts) > maxLoadedPosts {
+			m.posts = keepNewest(m.posts, maxLoadedPosts)
+		}
+		m.renderPosts()
+		if atBottom {
+			m.viewport.GotoBottom()
+		}
+		if !m.editing {
+			m.ownPosts = m.ownPostsFrom(m.posts)
+		}
+		m.status = fmt.Sprintf("%s · %d messages", m.activeChannelName, len(m.posts))
 		return m, nil
 
 	case sentMsg:
@@ -141,6 +186,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.idleForReload() {
 			cmds = append(cmds, m.loadChannelsCmd()) // refresh unread state
 		}
+		// Safety net: if the WebSocket is down, fall back to refetching the
+		// active channel so messages don't go stale during a reconnect.
+		if !m.wsConnected && m.activeChannelID != "" {
+			cmds = append(cmds, m.loadPostsCmd(m.activeChannelID))
+		}
 		return m, tea.Batch(cmds...)
 
 	case scheduledDeliveredMsg:
@@ -156,12 +206,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
-	case tickMsg:
-		cmds := []tea.Cmd{tickCmd()}
-		if m.activeChannelID != "" {
-			cmds = append(cmds, m.loadPostsCmd(m.activeChannelID))
+	case wsConnectedMsg:
+		m.ws = msg.ws
+		m.wsConnected = true
+		m.status = "● live"
+		return m, waitWSEventCmd(m.ws.Events)
+
+	case wsEventMsg:
+		cmds := []tea.Cmd{waitWSEventCmd(m.ws.Events)} // keep listening
+		switch msg.ev.EventType() {
+		case model.WebsocketEventPosted, model.WebsocketEventPostEdited, model.WebsocketEventPostDeleted:
+			var chID string
+			if b := msg.ev.GetBroadcast(); b != nil {
+				chID = b.ChannelId
+			}
+			if chID != "" && chID == m.activeChannelID {
+				if msg.ev.EventType() == model.WebsocketEventPosted {
+					cmds = append(cmds, m.loadNewerCmd(chID)) // append, keep history
+				} else {
+					cmds = append(cmds, m.loadPostsCmd(chID)) // edit/delete: refresh window
+				}
+			}
+			if m.idleForReload() {
+				cmds = append(cmds, m.loadChannelsCmd()) // bubble unread live
+			}
 		}
 		return m, tea.Batch(cmds...)
+
+	case wsClosedMsg:
+		m.wsConnected = false
+		m.ws = nil
+		m.status = "reconnecting…"
+		return m, reconnectCmd()
+
+	case wsReconnectMsg:
+		return m, m.connectWSCmd()
 
 	case errMsg:
 		m.err = msg.err
@@ -202,6 +281,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case m.emojiActive && msg.String() == "esc":
 		m.closeEmoji()
 		return m.applyLayout(), nil
+
+	// At the top of the message pane, scrolling up loads older history.
+	case m.focus == focusMessages && !m.loadingOlder && m.activeChannelID != "" &&
+		m.viewport.AtTop() && (msg.String() == "up" || msg.String() == "k" || msg.String() == "pgup"):
+		m.loadingOlder = true
+		m.status = "loading older…"
+		return m, m.loadOlderCmd(m.activeChannelID)
 
 	case key.Matches(msg, m.keys.Send):
 		return m.sendMessage()
@@ -799,9 +885,31 @@ func (m Model) layout() dims {
 
 // --- commands (async network calls) ---
 
-func tickCmd() tea.Cmd {
-	return tea.Tick(pollInterval*time.Second, func(time.Time) tea.Msg {
-		return tickMsg{}
+// connectWSCmd dials the WebSocket; returns wsConnectedMsg or wsClosedMsg.
+func (m Model) connectWSCmd() tea.Cmd {
+	return func() tea.Msg {
+		conn, err := m.mm.ConnectWS()
+		if err != nil {
+			return wsClosedMsg{err: err}
+		}
+		return wsConnectedMsg{ws: conn}
+	}
+}
+
+// waitWSEventCmd blocks on the next server event, re-armed after each one.
+func waitWSEventCmd(events chan *model.WebSocketEvent) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-events
+		if !ok {
+			return wsClosedMsg{}
+		}
+		return wsEventMsg{ev: ev}
+	}
+}
+
+func reconnectCmd() tea.Cmd {
+	return tea.Tick(reconnectInterval*time.Second, func(time.Time) tea.Msg {
+		return wsReconnectMsg{}
 	})
 }
 
@@ -902,10 +1010,18 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 				dmOtherIDs = append(dmOtherIDs, ch.GetOtherUserIdForDM(m.mm.UserID))
 			}
 		}
+		// Resolve DM participants. Track which are active so we can hide DMs with
+		// deactivated users (DeleteAt > 0).
 		names := map[string]string{}
+		active := map[string]bool{}
 		if len(dmOtherIDs) > 0 {
-			if names, err = m.mm.ResolveUsernames(m.ctx, dmOtherIDs); err != nil {
-				return errMsg{err}
+			users, _, uerr := m.mm.Client.GetUsersByIds(m.ctx, dmOtherIDs)
+			if uerr != nil {
+				return errMsg{fmt.Errorf("could not resolve users: %w", uerr)}
+			}
+			for _, u := range users {
+				names[u.Id] = "@" + u.Username
+				active[u.Id] = u.DeleteAt == 0
 			}
 		}
 
@@ -915,13 +1031,20 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 		// Per-channel read state for unread prioritization (best-effort).
 		members, _ := m.mm.ChannelMembers(m.ctx)
 
+		// Favorited channels/DMs are pinned to the top.
+		favs, _ := m.mm.FavoriteChannels(m.ctx)
+
 		items := make([]channelItem, 0, len(chans))
 		for _, ch := range chans {
 			typ := channelTypeLabel(ch.Type)
 			var name, desc, username string
 			switch ch.Type {
 			case model.ChannelTypeDirect:
-				username = strings.TrimPrefix(names[ch.GetOtherUserIdForDM(m.mm.UserID)], "@")
+				other := ch.GetOtherUserIdForDM(m.mm.UserID)
+				if !active[other] {
+					continue // hide DMs with deactivated (or unknown) users
+				}
+				username = strings.TrimPrefix(names[other], "@")
 				name, desc = dmLabel(username, aliases)
 			default:
 				name = ch.DisplayName
@@ -931,7 +1054,7 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 				desc = "# " + typ
 			}
 
-			it := channelItem{id: ch.Id, name: name, desc: desc, typ: typ, username: username, lastPostAt: ch.LastPostAt}
+			it := channelItem{id: ch.Id, name: name, desc: desc, typ: typ, username: username, lastPostAt: ch.LastPostAt, favorite: favs[ch.Id]}
 			if mbr := members[ch.Id]; mbr != nil {
 				it.unread = ch.LastPostAt > mbr.LastViewedAt
 				it.mentions = int(mbr.MentionCount)
@@ -951,46 +1074,136 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 	}
 }
 
+// buildPostLines resolves usernames and converts a PostList (newest-first Order)
+// into chronological postLines.
+func (m Model) buildPostLines(posts *model.PostList) ([]postLine, error) {
+	ids := make([]string, 0, len(posts.Order))
+	for _, id := range posts.Order {
+		ids = append(ids, posts.Posts[id].UserId)
+	}
+	usernames, err := m.mm.ResolveUsernames(m.ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	lines := make([]postLine, 0, len(posts.Order))
+	for i := len(posts.Order) - 1; i >= 0; i-- {
+		p := posts.Posts[posts.Order[i]]
+		lines = append(lines, postLine{
+			postID:  p.Id,
+			time:    time.UnixMilli(p.CreateAt).Format("15:04"),
+			author:  usernames[p.UserId],
+			message: p.Message,
+			fileIDs: p.FileIds,
+		})
+	}
+	return lines, nil
+}
+
+// keepNewest returns at most max posts, dropping the oldest (front).
+func keepNewest(posts []postLine, max int) []postLine {
+	if len(posts) > max {
+		return posts[len(posts)-max:]
+	}
+	return posts
+}
+
+// keepOldest returns at most max posts, dropping the newest (tail).
+func keepOldest(posts []postLine, max int) []postLine {
+	if len(posts) > max {
+		return posts[:max]
+	}
+	return posts
+}
+
+// markdownFor builds the rendered-input blob for a set of posts.
+func markdownFor(lines []postLine) string {
+	var b strings.Builder
+	for _, p := range lines {
+		fmt.Fprintf(&b, "**%s · %s**\n\n%s\n\n---\n\n", p.time, p.author, p.message)
+	}
+	return b.String()
+}
+
+// ownPostsFrom returns the current user's posts newest-first (for up-arrow edit).
+func (m Model) ownPostsFrom(lines []postLine) []ownPost {
+	me := "@" + m.mm.Username
+	var own []ownPost
+	for i := len(lines) - 1; i >= 0; i-- {
+		if lines[i].author == me {
+			own = append(own, ownPost{id: lines[i].postID, message: lines[i].message})
+		}
+	}
+	return own
+}
+
+// renderPosts re-renders m.posts into the viewport via glamour.
+func (m *Model) renderPosts() {
+	md := markdownFor(m.posts)
+	rendered, err := m.renderer.Render(md)
+	if err != nil {
+		rendered = md
+	}
+	m.viewport.SetContent(rendered)
+}
+
 func (m Model) loadPostsCmd(channelID string) tea.Cmd {
 	return func() tea.Msg {
 		posts, _, err := m.mm.Client.GetPostsForChannel(m.ctx, channelID, 0, m.limit, "", false, false)
 		if err != nil {
 			return errMsg{fmt.Errorf("could not fetch posts: %w", err)}
 		}
-
-		ids := make([]string, 0, len(posts.Order))
-		for _, id := range posts.Order {
-			ids = append(ids, posts.Posts[id].UserId)
-		}
-		usernames, err := m.mm.ResolveUsernames(m.ctx, ids)
+		lines, err := m.buildPostLines(posts)
 		if err != nil {
 			return errMsg{err}
 		}
-
-		var b strings.Builder
-		var lines []postLine
-		for i := len(posts.Order) - 1; i >= 0; i-- {
-			p := posts.Posts[posts.Order[i]]
-			ts := time.UnixMilli(p.CreateAt).Format("15:04")
-			fmt.Fprintf(&b, "**%s · %s**\n\n%s\n\n---\n\n", ts, usernames[p.UserId], p.Message)
-			lines = append(lines, postLine{postID: p.Id, time: ts, author: usernames[p.UserId], message: p.Message, fileIDs: p.FileIds})
-		}
-
-		// posts.Order is newest-first, so this collects own posts newest-first too.
-		var own []ownPost
-		for _, id := range posts.Order {
-			if p := posts.Posts[id]; p.UserId == m.mm.UserID {
-				own = append(own, ownPost{id: p.Id, message: p.Message})
-			}
-		}
-
-		return postsLoadedMsg{channelID: channelID, markdown: b.String(), count: len(posts.Order), ownPosts: own, posts: lines}
+		return postsLoadedMsg{channelID: channelID, posts: lines}
 	}
 }
 
-// channelLess orders the sidebar: unread first (most recent activity on top),
-// then named channels, then DMs, alphabetical within the read groups.
+// loadOlderCmd fetches the page of messages before the oldest one loaded.
+func (m Model) loadOlderCmd(channelID string) tea.Cmd {
+	if len(m.posts) == 0 {
+		return nil
+	}
+	oldest := m.posts[0].postID
+	return func() tea.Msg {
+		posts, _, err := m.mm.Client.GetPostsBefore(m.ctx, channelID, oldest, 0, m.limit, "", false, false)
+		if err != nil {
+			return errMsg{fmt.Errorf("could not fetch older posts: %w", err)}
+		}
+		lines, err := m.buildPostLines(posts)
+		if err != nil {
+			return errMsg{err}
+		}
+		return olderLoadedMsg{channelID: channelID, posts: lines}
+	}
+}
+
+// loadNewerCmd fetches messages after the newest one loaded (live updates).
+func (m Model) loadNewerCmd(channelID string) tea.Cmd {
+	if len(m.posts) == 0 {
+		return m.loadPostsCmd(channelID)
+	}
+	newest := m.posts[len(m.posts)-1].postID
+	return func() tea.Msg {
+		posts, _, err := m.mm.Client.GetPostsAfter(m.ctx, channelID, newest, 0, m.limit, "", false, false)
+		if err != nil {
+			return errMsg{fmt.Errorf("could not fetch new posts: %w", err)}
+		}
+		lines, err := m.buildPostLines(posts)
+		if err != nil {
+			return errMsg{err}
+		}
+		return newerLoadedMsg{channelID: channelID, posts: lines}
+	}
+}
+
+// channelLess orders the sidebar: favorites first, then unread (most recent
+// activity on top), then named channels, then DMs, alphabetical within groups.
 func channelLess(a, b channelItem) bool {
+	if a.favorite != b.favorite {
+		return a.favorite
+	}
 	if a.unread != b.unread {
 		return a.unread
 	}
