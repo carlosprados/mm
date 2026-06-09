@@ -119,7 +119,12 @@ A third surface alongside the CLI and MCP, built on Bubble Tea + bubbles +
 lipgloss, with Markdown rendered by glamour. It reuses `client.MM` and the
 shared messaging service; it does **not** introduce its own Mattermost logic.
 Auth is host-side (saved session / env), like `mm mcp`, so it has no MCP
-counterpart. Active channel is refreshed by polling (no WebSocket yet).
+counterpart. Updates are **real-time over WebSocket** (`client.ConnectWS` /
+`model.WebSocketClient`): `posted`/`post_edited`/`post_deleted` events refetch
+the active channel and bubble unread in the sidebar. A forwarder goroutine
+drains the ping/response channels; on disconnect the TUI reconnects with a
+short backoff. The 20s schedule tick doubles as a safety refresh while the
+socket is down.
 
 TUI extras that stay leveled with the other surfaces:
 - **Edit** your own messages with `↑` (same as `mm edit` / `edit_message`).

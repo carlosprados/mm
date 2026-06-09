@@ -31,7 +31,7 @@ Built against Mattermost Server **11.6.x** using the official
 - Edit your own messages from the CLI, the TUI (`↑`) or MCP.
 - Schedule messages for later delivery (CLI, TUI `ctrl+t`, MCP); delivered by the TUI while it runs.
 - Configurable aliases: DM a colleague by a short handle (`luis` → `luisdavid.francisco`).
-- Interactive TUI (`mm tui`) built on Bubble Tea, with Markdown rendering and an emoji picker.
+- Interactive TUI (`mm tui`) built on Bubble Tea: real-time over WebSocket, Markdown rendering, emoji picker, inline images.
 - MCP server (`mm mcp`) with **9 tools**, **3 resources** and **3 prompts**.
 
 ---
@@ -272,13 +272,14 @@ mm alias rm luisete
 
 A full-screen terminal client: a channel/DM sidebar on the left, a
 Markdown-rendered message pane and a composer on the right. DMs are labelled by
-the colleague's alias when one is configured. Same auth as the CLI; the active
-channel is refreshed by polling.
+the colleague's alias when one is configured. Same auth as the CLI. Updates are
+**real-time over a WebSocket** (it reconnects automatically if the connection
+drops); a `● live` indicator shows when the socket is up.
 
 **Unread first.** The sidebar prioritizes channels/DMs with messages you
 haven't read: they sort to the top (most recent first) with a `●` bullet and an
 `(N)` mention count. Opening a channel marks it read (server-side, so it also
-clears on web/mobile). The list refreshes itself periodically.
+clears on web/mobile). New messages bubble channels up live.
 
 **Scroll & copy.** `tab` to the message pane, then `j`/`k` / `pgup`/`pgdn` to
 scroll; your position is kept across background refreshes (it only snaps to the
