@@ -166,6 +166,9 @@ func (s *Server) registerTools() {
 			}
 			out := listUsersOut{Users: make([]userInfo, 0, len(users))}
 			for _, u := range users {
+				if u.DeleteAt != 0 {
+					continue // skip deactivated users
+				}
 				out.Users = append(out.Users, userInfo{
 					Username: u.Username,
 					Name:     strings.TrimSpace(u.FirstName + " " + u.LastName),
