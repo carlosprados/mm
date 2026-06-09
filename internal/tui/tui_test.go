@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattermost/mattermost/server/public/model"
 
 	"github.com/carlosprados/mm/internal/alias"
 )
@@ -183,6 +184,23 @@ func TestShellQuote(t *testing.T) {
 		if got := shellQuote(in); got != want {
 			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestFormatReactions aggregates a post's reactions by emoji with counts.
+func TestFormatReactions(t *testing.T) {
+	if got := formatReactions(&model.Post{}); got != "" {
+		t.Errorf("no metadata should be empty, got %q", got)
+	}
+	p := &model.Post{Metadata: &model.PostMetadata{Reactions: []*model.Reaction{
+		{EmojiName: "thumbsup"}, {EmojiName: "thumbsup"}, {EmojiName: "tada"},
+	}}}
+	got := formatReactions(p)
+	if !strings.Contains(got, emojiGlyph("thumbsup")+" 2") {
+		t.Errorf("expected thumbsup x2 in %q", got)
+	}
+	if !strings.Contains(got, emojiGlyph("tada")+" 1") {
+		t.Errorf("expected tada x1 in %q", got)
 	}
 }
 

@@ -27,6 +27,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch {
+		case m.reactMode:
+			return m.handleReactKey(msg)
 		case m.imagePickMode:
 			return m.handleImageKey(msg)
 		case m.copyMode:
@@ -149,6 +151,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "copy failed: " + msg.err.Error()
 		} else {
 			m.status = "copied to clipboard"
+		}
+		return m, nil
+
+	case reactedMsg:
+		if msg.err != nil {
+			m.status = "reaction failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.status = "reaction added"
+		if msg.channelID == m.activeChannelID {
+			return m, m.loadPostsCmd(msg.channelID) // refresh to show it
 		}
 		return m, nil
 
@@ -343,6 +356,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadPostsCmd(m.activeChannelID)
 		}
 		return m, m.loadChannelsCmd()
+
+	// React to a message: '+' from the messages pane.
+	case msg.String() == "+" && m.focus == focusMessages && len(m.posts) > 0:
+		m.reactMode = true
+		m.reactPhase = 0
+		m.reactCursor = len(m.posts) - 1 // default to most recent
+		m.status = "react: pick a message"
+		return m, nil
 
 	// View image attachments from the messages pane.
 	case msg.String() == "i" && m.focus == focusMessages:
@@ -634,6 +655,89 @@ func copyCmd(text string) tea.Cmd {
 			return copiedMsg{err: err}
 		}
 		return copiedMsg{}
+	}
+}
+
+// handleReactKey drives the two-phase react flow: pick a message, then an emoji.
+func (m Model) handleReactKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+
+	if m.reactPhase == 0 { // pick a message
+		switch msg.String() {
+		case "esc", "q":
+			m.reactMode = false
+		case "down", "j":
+			if m.reactCursor < len(m.posts)-1 {
+				m.reactCursor++
+			}
+		case "up", "k":
+			if m.reactCursor > 0 {
+				m.reactCursor--
+			}
+		case "enter":
+			if m.reactCursor >= 0 && m.reactCursor < len(m.posts) {
+				m.reactTarget = m.posts[m.reactCursor].postID
+				m.reactPhase = 1
+				m.reactInput.SetValue("")
+				m.reactInput.Focus()
+				m.reactMatches = nil
+				m.reactEmojiCursor = 0
+				m.status = "react: search an emoji"
+			}
+		}
+		return m, nil
+	}
+
+	// phase 1: pick an emoji (textinput captures letters; navigate with arrows)
+	switch msg.String() {
+	case "esc":
+		m.reactPhase = 0
+		m.reactInput.Blur()
+		m.status = "react: pick a message"
+		return m, nil
+	case "up":
+		if m.reactEmojiCursor > 0 {
+			m.reactEmojiCursor--
+		}
+		return m, nil
+	case "down":
+		if m.reactEmojiCursor < len(m.reactMatches)-1 {
+			m.reactEmojiCursor++
+		}
+		return m, nil
+	case "enter":
+		if m.reactEmojiCursor < 0 || m.reactEmojiCursor >= len(m.reactMatches) {
+			return m, nil
+		}
+		name := m.reactMatches[m.reactEmojiCursor].short
+		target := m.reactTarget
+		m.reactMode = false
+		m.reactInput.Blur()
+		m.status = "reacting…"
+		return m, m.reactCmd(target, name)
+	default:
+		var cmd tea.Cmd
+		m.reactInput, cmd = m.reactInput.Update(msg)
+		if q := strings.ToLower(strings.TrimSpace(m.reactInput.Value())); len(q) >= 2 {
+			m.reactMatches = searchEmoji(q)
+		} else {
+			m.reactMatches = nil
+		}
+		if m.reactEmojiCursor >= len(m.reactMatches) {
+			m.reactEmojiCursor = 0
+		}
+		return m, cmd
+	}
+}
+
+func (m Model) reactCmd(postID, emojiName string) tea.Cmd {
+	return func() tea.Msg {
+		if err := m.mm.React(m.ctx, postID, emojiName); err != nil {
+			return reactedMsg{err: err}
+		}
+		return reactedMsg{channelID: m.activeChannelID}
 	}
 }
 
@@ -1089,14 +1193,36 @@ func (m Model) buildPostLines(posts *model.PostList) ([]postLine, error) {
 	for i := len(posts.Order) - 1; i >= 0; i-- {
 		p := posts.Posts[posts.Order[i]]
 		lines = append(lines, postLine{
-			postID:  p.Id,
-			time:    time.UnixMilli(p.CreateAt).Format("15:04"),
-			author:  usernames[p.UserId],
-			message: p.Message,
-			fileIDs: p.FileIds,
+			postID:    p.Id,
+			time:      time.UnixMilli(p.CreateAt).Format("15:04"),
+			author:    usernames[p.UserId],
+			message:   p.Message,
+			fileIDs:   p.FileIds,
+			reactions: formatReactions(p),
 		})
 	}
 	return lines, nil
+}
+
+// formatReactions aggregates a post's reactions into "👍 2  🎉 1" (from the
+// metadata already attached to the post; no extra API calls).
+func formatReactions(p *model.Post) string {
+	if p.Metadata == nil || len(p.Metadata.Reactions) == 0 {
+		return ""
+	}
+	counts := map[string]int{}
+	var order []string
+	for _, r := range p.Metadata.Reactions {
+		if counts[r.EmojiName] == 0 {
+			order = append(order, r.EmojiName)
+		}
+		counts[r.EmojiName]++
+	}
+	parts := make([]string, 0, len(order))
+	for _, name := range order {
+		parts = append(parts, fmt.Sprintf("%s %d", emojiGlyph(name), counts[name]))
+	}
+	return strings.Join(parts, "  ")
 }
 
 // keepNewest returns at most max posts, dropping the oldest (front).
@@ -1119,7 +1245,11 @@ func keepOldest(posts []postLine, max int) []postLine {
 func markdownFor(lines []postLine) string {
 	var b strings.Builder
 	for _, p := range lines {
-		fmt.Fprintf(&b, "**%s · %s**\n\n%s\n\n---\n\n", p.time, p.author, p.message)
+		fmt.Fprintf(&b, "**%s · %s**\n\n%s\n", p.time, p.author, p.message)
+		if p.reactions != "" {
+			fmt.Fprintf(&b, "\n%s\n", p.reactions)
+		}
+		b.WriteString("\n---\n\n")
 	}
 	return b.String()
 }
