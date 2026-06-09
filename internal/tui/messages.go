@@ -1,6 +1,31 @@
 package tui
 
-import "github.com/charmbracelet/bubbles/list"
+import (
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/mattermost/mattermost/server/public/model"
+
+	"github.com/carlosprados/mm/internal/client"
+)
+
+// --- WebSocket (real-time) ---
+
+// wsConnectedMsg carries a freshly connected WebSocket connection.
+type wsConnectedMsg struct {
+	ws *client.WSConn
+}
+
+// wsEventMsg is one server-pushed event.
+type wsEventMsg struct {
+	ev *model.WebSocketEvent
+}
+
+// wsClosedMsg signals the connection dropped (or failed to open).
+type wsClosedMsg struct {
+	err error
+}
+
+// wsReconnectMsg fires after the reconnect backoff.
+type wsReconnectMsg struct{}
 
 // tea.Msg types produced by async commands. The Update loop never blocks on
 // the network; every Mattermost call runs inside a tea.Cmd and reports back
@@ -65,9 +90,6 @@ type scheduledDeliveredMsg struct {
 	channelID string
 	err       error
 }
-
-// tickMsg drives the polling refresh of the active channel.
-type tickMsg struct{}
 
 // scheduleTickMsg drives the scheduled-message delivery loop.
 type scheduleTickMsg struct{}

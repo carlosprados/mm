@@ -26,12 +26,12 @@ const (
 )
 
 const (
-	sidebarWidth     = 32 // total, including border
-	composerLines    = 3  // textarea visible rows
-	defaultLimit     = 30
-	pollInterval     = 5  // seconds — active channel refresh
-	scheduleInterval = 20 // seconds — scheduled-message delivery check
-	defaultWrapAt    = 80
+	sidebarWidth      = 32 // total, including border
+	composerLines     = 3  // textarea visible rows
+	defaultLimit      = 30
+	scheduleInterval  = 20 // seconds — scheduled-message delivery + safety refresh
+	reconnectInterval = 3  // seconds — WebSocket reconnect backoff
+	defaultWrapAt     = 80
 )
 
 // Model is the root Bubble Tea model. It owns the channel sidebar, the message
@@ -65,6 +65,10 @@ type Model struct {
 	// deliveringIDs tracks scheduled items currently being sent, so the delivery
 	// loop doesn't dispatch the same item twice.
 	deliveringIDs map[string]bool
+
+	// WebSocket real-time updates (replaces message polling).
+	ws          *client.WSConn
+	wsConnected bool
 
 	// scheduleView is the in-TUI list of pending scheduled messages (toggled
 	// with 's' from the sidebar).
@@ -217,5 +221,5 @@ func (m *Model) setFocus(area focusArea) tea.Cmd {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadChannelsCmd(), tickCmd(), scheduleTickCmd())
+	return tea.Batch(m.loadChannelsCmd(), scheduleTickCmd(), m.connectWSCmd())
 }

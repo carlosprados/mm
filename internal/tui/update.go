@@ -141,6 +141,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.idleForReload() {
 			cmds = append(cmds, m.loadChannelsCmd()) // refresh unread state
 		}
+		// Safety net: if the WebSocket is down, fall back to refetching the
+		// active channel so messages don't go stale during a reconnect.
+		if !m.wsConnected && m.activeChannelID != "" {
+			cmds = append(cmds, m.loadPostsCmd(m.activeChannelID))
+		}
 		return m, tea.Batch(cmds...)
 
 	case scheduledDeliveredMsg:
@@ -156,12 +161,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
-	case tickMsg:
-		cmds := []tea.Cmd{tickCmd()}
-		if m.activeChannelID != "" {
-			cmds = append(cmds, m.loadPostsCmd(m.activeChannelID))
+	case wsConnectedMsg:
+		m.ws = msg.ws
+		m.wsConnected = true
+		m.status = "● live"
+		return m, waitWSEventCmd(m.ws.Events)
+
+	case wsEventMsg:
+		cmds := []tea.Cmd{waitWSEventCmd(m.ws.Events)} // keep listening
+		switch msg.ev.EventType() {
+		case model.WebsocketEventPosted, model.WebsocketEventPostEdited, model.WebsocketEventPostDeleted:
+			var chID string
+			if b := msg.ev.GetBroadcast(); b != nil {
+				chID = b.ChannelId
+			}
+			if chID != "" && chID == m.activeChannelID {
+				cmds = append(cmds, m.loadPostsCmd(chID))
+			}
+			if m.idleForReload() {
+				cmds = append(cmds, m.loadChannelsCmd()) // bubble unread live
+			}
 		}
 		return m, tea.Batch(cmds...)
+
+	case wsClosedMsg:
+		m.wsConnected = false
+		m.ws = nil
+		m.status = "reconnecting…"
+		return m, reconnectCmd()
+
+	case wsReconnectMsg:
+		return m, m.connectWSCmd()
 
 	case errMsg:
 		m.err = msg.err
@@ -799,9 +829,31 @@ func (m Model) layout() dims {
 
 // --- commands (async network calls) ---
 
-func tickCmd() tea.Cmd {
-	return tea.Tick(pollInterval*time.Second, func(time.Time) tea.Msg {
-		return tickMsg{}
+// connectWSCmd dials the WebSocket; returns wsConnectedMsg or wsClosedMsg.
+func (m Model) connectWSCmd() tea.Cmd {
+	return func() tea.Msg {
+		conn, err := m.mm.ConnectWS()
+		if err != nil {
+			return wsClosedMsg{err: err}
+		}
+		return wsConnectedMsg{ws: conn}
+	}
+}
+
+// waitWSEventCmd blocks on the next server event, re-armed after each one.
+func waitWSEventCmd(events chan *model.WebSocketEvent) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-events
+		if !ok {
+			return wsClosedMsg{}
+		}
+		return wsEventMsg{ev: ev}
+	}
+}
+
+func reconnectCmd() tea.Cmd {
+	return tea.Tick(reconnectInterval*time.Second, func(time.Time) tea.Msg {
+		return wsReconnectMsg{}
 	})
 }
 
