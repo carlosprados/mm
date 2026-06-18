@@ -20,9 +20,11 @@ func (m Model) View() string {
 		Render(m.list.View())
 
 	// Modal pickers take over the right column.
-	if m.scheduleViewMode || m.copyMode || m.imagePickMode || m.reactMode {
+	if m.helpMode || m.scheduleViewMode || m.copyMode || m.imagePickMode || m.reactMode {
 		var bodyText string
 		switch {
+		case m.helpMode:
+			bodyText = m.helpBody()
 		case m.copyMode:
 			bodyText = m.copyPickerBody()
 		case m.imagePickMode:
@@ -176,6 +178,9 @@ func (m Model) emojiPopupView(width, rows int) string {
 }
 
 func (m Model) footer() string {
+	if m.helpMode {
+		return footerStyle.Width(m.width).Render("help · any key closes")
+	}
 	if m.aliasMode {
 		return footerStyle.Width(m.width).
 			Render("alias for @" + m.aliasUser + ": " + m.aliasInput.View() + "  (enter saves · esc cancels)")
@@ -199,7 +204,7 @@ func (m Model) footer() string {
 		}
 		return footerStyle.Width(m.width).Render("react · type emoji · ↑/↓ pick · enter apply · esc back")
 	}
-	help := "enter open · scroll-up=history · ctrl+s send · y copy · i images · + react · q quit"
+	help := "enter open · ctrl+s send · + react · y copy · i images · ? help · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }

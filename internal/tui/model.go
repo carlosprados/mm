@@ -49,6 +49,9 @@ type Model struct {
 	renderer   *glamour.TermRenderer
 	styleName  string // glamour style resolved once at startup (no TTY query in the loop)
 
+	// helpMode shows the keyboard-shortcut popup (toggled with '?').
+	helpMode bool
+
 	// aliasMode captures an alias for the selected DM's user (aliasUser).
 	aliasMode bool
 	aliasUser string
@@ -227,7 +230,7 @@ func New(ctx context.Context, mm *client.MM) Model {
 		focus:         focusSidebar,
 		limit:         defaultLimit,
 		deliveringIDs: map[string]bool{},
-		status:        "Select a channel · enter opens · a aliases a DM",
+		status:        "Select a channel · enter opens · ? for help",
 	}
 }
 
