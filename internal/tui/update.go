@@ -27,6 +27,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch {
+		case m.helpMode:
+			return m.handleHelpKey(msg)
 		case m.reactMode:
 			return m.handleReactKey(msg)
 		case m.imagePickMode:
@@ -381,6 +383,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "copy a message"
 		return m, nil
 
+	// Toggle the keyboard-shortcut help popup. Not while composing or filtering,
+	// where '?' is literal text.
+	case msg.String() == "?" && !composing && !filtering:
+		m.helpMode = true
+		m.status = "keyboard shortcuts"
+		return m, nil
+
 	// Open the scheduled-messages viewer from the sidebar.
 	case msg.String() == "s" && m.focus == focusSidebar && !filtering:
 		store, _ := schedule.Load()
@@ -610,6 +619,16 @@ func (m Model) handleScheduleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scheduleInput, cmd = m.scheduleInput.Update(msg)
 		return m, cmd
 	}
+}
+
+// handleHelpKey closes the shortcut popup on any key (ctrl+c still quits).
+func (m Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+	m.helpMode = false
+	m.status = ""
+	return m, nil
 }
 
 // idleForReload reports whether a background sidebar reload is safe (no input

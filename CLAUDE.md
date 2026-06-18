@@ -126,6 +126,12 @@ drains the ping/response channels; on disconnect the TUI reconnects with a
 short backoff. The 20s schedule tick doubles as a safety refresh while the
 socket is down.
 
+- **Help popup**: `?` (outside the composer/filter) toggles a modal listing
+  every keybinding by section (Global / Channel list / Pickers / Messages /
+  Composer). Any key closes it. TUI-only input affordance, like the emoji
+  picker — no CLI/MCP counterpart. Keep `internal/tui/help.go` in sync with the
+  handlers in `update.go`.
+
 TUI extras that stay leveled with the other surfaces:
 - **Edit** your own messages with `↑` (same as `mm edit` / `edit_message`).
 - **Alias** a DM's user with `a` — writes the same `aliases.json` as
