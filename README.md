@@ -301,6 +301,7 @@ shown; press Enter to return. Requires `chafa` on `PATH`.
 | `j` / `k`       | Move within the focused pane (scroll the message pane when focused) |
 | `y`             | On the message pane: open the copy picker — pick a message, `enter`/`y` copies its **Markdown source** to the clipboard |
 | `i`             | On the message pane: open the image picker — pick an attachment, `enter` renders it inline with `chafa` |
+| `+`             | On the message pane: react — pick a message, then search an emoji and `enter` to apply |
 | `/`             | Filter the sidebar (matches alias and @handle)               |
 | `enter`         | Open the selected channel (marks it read; focus → composer)  |
 | `a`             | On a selected DM: assign an alias to that colleague          |
