@@ -19,6 +19,8 @@ func (m Model) View() string {
 		Height(d.sidebarInnerH).
 		Render(m.list.View())
 
+	var body string
+
 	// Modal pickers take over the right column.
 	if m.helpMode || m.scheduleViewMode || m.copyMode || m.imagePickMode || m.reactMode {
 		var bodyText string
@@ -38,32 +40,36 @@ func (m Model) View() string {
 			Width(d.msgInnerW).
 			Height(d.sidebarInnerH).
 			Render(bodyText)
-		body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
-		return lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
+		body = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
+	} else {
+		messages := paneStyle(m.focus == focusMessages).
+			Width(d.msgInnerW).
+			Height(d.messagesInnerH).
+			Render(m.viewport.View())
+
+		composerStyle := paneStyle(m.focus == focusComposer).
+			Width(d.msgInnerW).
+			Height(composerLines)
+		if m.editing {
+			composerStyle = composerStyle.BorderForeground(editingColor)
+		}
+		composer := composerStyle.Render(m.composer.View())
+
+		rightParts := []string{messages}
+		if d.popupRows > 0 {
+			rightParts = append(rightParts, m.emojiPopupView(d.msgInnerW, d.popupRows))
+		}
+		rightParts = append(rightParts, composer)
+		right := lipgloss.JoinVertical(lipgloss.Left, rightParts...)
+
+		body = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
 	}
 
-	messages := paneStyle(m.focus == focusMessages).
-		Width(d.msgInnerW).
-		Height(d.messagesInnerH).
-		Render(m.viewport.View())
-
-	composerStyle := paneStyle(m.focus == focusComposer).
-		Width(d.msgInnerW).
-		Height(composerLines)
-	if m.editing {
-		composerStyle = composerStyle.BorderForeground(editingColor)
-	}
-	composer := composerStyle.Render(m.composer.View())
-
-	rightParts := []string{messages}
-	if d.popupRows > 0 {
-		rightParts = append(rightParts, m.emojiPopupView(d.msgInnerW, d.popupRows))
-	}
-	rightParts = append(rightParts, composer)
-	right := lipgloss.JoinVertical(lipgloss.Left, rightParts...)
-
-	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
-	return lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
+	out := lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
+	// Hard clamp to the real terminal size. A frame one line too tall scrolls
+	// the terminal and desyncs Bubble Tea's cursor, which is what leaves residue
+	// and eats the panes' top borders on resize.
+	return lipgloss.NewStyle().MaxWidth(m.width).MaxHeight(m.height).Render(out)
 }
 
 func (m Model) reactBody() string {

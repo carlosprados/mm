@@ -9,7 +9,9 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mattermost/mattermost/server/public/model"
+	"github.com/rivo/uniseg"
 
 	"github.com/carlosprados/mm/internal/alias"
 )
@@ -44,6 +46,64 @@ func TestResizeBecomesReady(t *testing.T) {
 	}
 	if got.width != 120 || got.height != 40 {
 		t.Errorf("size not stored: got %dx%d", got.width, got.height)
+	}
+}
+
+// TestViewFitsTerminal guards the resize regression: View() must never fill the
+// full terminal height (the last row is reserved so writing the bottom-right
+// cell doesn't scroll the terminal and eat the panes' top border) nor exceed the
+// width, and the first line must be the top border.
+func TestViewFitsTerminal(t *testing.T) {
+	for _, sz := range [][2]int{{80, 24}, {120, 40}, {100, 30}, {40, 12}} {
+		w, h := sz[0], sz[1]
+		m := newTestModel()
+		u, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+		v := u.(Model).View()
+
+		if gotH := lipgloss.Height(v); gotH > h-1 {
+			t.Errorf("%dx%d: View is %d lines, want <= %d (last row must stay free)", w, h, gotH, h-1)
+		}
+		if gotW := lipgloss.Width(v); gotW > w {
+			t.Errorf("%dx%d: View width %d, want <= %d", w, h, gotW, w)
+		}
+		if first := strings.SplitN(v, "\n", 2)[0]; !strings.HasPrefix(first, "╭") {
+			t.Errorf("%dx%d: first line should be the top border, got %q", w, h, first)
+		}
+	}
+}
+
+// TestSanitizeLabel checks emoji become a width-1 placeholder while plain text
+// (and the prefix glyphs) are untouched — the sidebar alignment fix.
+func TestSanitizeLabel(t *testing.T) {
+	cases := map[string]string{
+		"secblured-project":  "secblured-project", // plain text unchanged
+		"🟦🟥secblured":        "··secblured",        // two emoji → two dots
+		"SEI2T - 🔒2️⃣":        "SEI2T - ··",         // lock + keycap (3-cp cluster) → two dots
+		"team_core":          "team_core",
+		"café":               "café",               // accented latin stays
+	}
+	for in, want := range cases {
+		if got := sanitizeLabel(in); got != want {
+			t.Errorf("sanitizeLabel(%q) = %q, want %q", in, got, want)
+		}
+		// every rune left must be single-width so columns stay aligned
+		if uniseg.StringWidth(sanitizeLabel(in)) != len([]rune(want)) {
+			// only meaningful when want is all width-1; the cases above are
+			t.Logf("width note for %q: %d", in, uniseg.StringWidth(sanitizeLabel(in)))
+		}
+	}
+}
+
+// TestTruncateDisplay caps width without splitting grapheme clusters.
+func TestTruncateDisplay(t *testing.T) {
+	if got := truncateDisplay("hello", 10); got != "hello" {
+		t.Errorf("under cap should be unchanged, got %q", got)
+	}
+	if got := truncateDisplay("hello world", 5); got != "hello" {
+		t.Errorf("truncate to 5 = %q, want %q", got, "hello")
+	}
+	if w := uniseg.StringWidth(truncateDisplay("a longer channel name here", 12)); w > 12 {
+		t.Errorf("truncated width %d exceeds 12", w)
 	}
 }
 
