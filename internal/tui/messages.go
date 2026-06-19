@@ -61,6 +61,12 @@ type copiedMsg struct {
 	err error
 }
 
+// reactedMsg reports the result of adding a reaction.
+type reactedMsg struct {
+	channelID string
+	err       error
+}
+
 // attachmentsLoadedMsg carries the channel's image attachments for the picker.
 type attachmentsLoadedMsg struct {
 	images []imageAttachment

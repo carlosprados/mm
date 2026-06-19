@@ -3,9 +3,10 @@ package tui
 import (
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
-	"github.com/kyokomi/emoji/v2"
+	"github.com/mattermost/mattermost/server/public/model"
 )
 
 const maxEmojiResults = 7 // popup rows
@@ -16,17 +17,50 @@ type emojiEntry struct {
 	glyph string
 }
 
-// emojiList is the full set, built once and sorted for deterministic results.
-var emojiList = buildEmojiList()
+// We source emoji from model.SystemEmojis (the exact name set Mattermost
+// accepts) rather than a third-party set, so reaction names always validate
+// server-side and shortcodes match what Mattermost renders.
+var (
+	emojiList   = buildEmojiList()
+	emojiByName = buildEmojiByName()
+)
+
+// codepointToGlyph turns "1f604" or "1f468-200d-1f4bb" into the glyph string.
+func codepointToGlyph(cp string) string {
+	var b strings.Builder
+	for _, part := range strings.Split(cp, "-") {
+		n, err := strconv.ParseInt(part, 16, 32)
+		if err != nil {
+			return ""
+		}
+		b.WriteRune(rune(n))
+	}
+	return b.String()
+}
 
 func buildEmojiList() []emojiEntry {
-	cm := emoji.CodeMap() // ":smile:" -> "😄"
-	list := make([]emojiEntry, 0, len(cm))
-	for code, glyph := range cm {
-		list = append(list, emojiEntry{short: strings.Trim(code, ":"), glyph: glyph})
+	list := make([]emojiEntry, 0, len(model.SystemEmojis))
+	for name, cp := range model.SystemEmojis {
+		list = append(list, emojiEntry{short: name, glyph: codepointToGlyph(cp)})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].short < list[j].short })
 	return list
+}
+
+func buildEmojiByName() map[string]string {
+	m := make(map[string]string, len(model.SystemEmojis))
+	for name, cp := range model.SystemEmojis {
+		m[name] = codepointToGlyph(cp)
+	}
+	return m
+}
+
+// emojiGlyph returns the glyph for a short name, or :name: if unknown (custom).
+func emojiGlyph(name string) string {
+	if g, ok := emojiByName[name]; ok && g != "" {
+		return g
+	}
+	return ":" + name + ":"
 }
 
 // emojiQueryRe matches a trailing ":word" token (the emoji being typed), at
