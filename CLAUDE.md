@@ -132,6 +132,14 @@ socket is down.
   picker — no CLI/MCP counterpart. Keep `internal/tui/help.go` in sync with the
   handlers in `update.go`.
 
+Layout invariants (see `internal/tui/view.go` + `layout()`): `View()` is hard-
+clamped to the terminal size and `layout()` reserves the bottom row — a frame
+that fills the full height scrolls the terminal and eats the panes' top border.
+Sidebar item titles run through `sanitizeLabel` (emoji grapheme clusters →
+width-1 `·`) and `truncateDisplay`: emoji are painted at a terminal-dependent
+width that disagrees with what lipgloss/uniseg measures, which otherwise drifts
+the right border. `TestViewFitsTerminal` / `TestSanitizeLabel` guard both.
+
 TUI extras that stay leveled with the other surfaces:
 - **Edit** your own messages with `↑` (same as `mm edit` / `edit_message`).
 - **Alias** a DM's user with `a` — writes the same `aliases.json` as

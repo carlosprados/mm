@@ -7,9 +7,12 @@ var (
 	blurredColor = lipgloss.Color("240") // grey — everything else
 	editingColor = lipgloss.Color("214") // orange — composer while editing
 
+	// footerStyle is pinned to a single line: layout() budgets exactly one row
+	// for the footer, so a wrapped footer would push the panes off the top.
 	footerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244")).
-			Padding(0, 1)
+			Padding(0, 1).
+			MaxHeight(1)
 
 	statusStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("212")).
