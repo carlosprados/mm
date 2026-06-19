@@ -20,13 +20,17 @@ func (m Model) View() string {
 		Render(m.list.View())
 
 	// Modal pickers take over the right column.
-	if m.scheduleViewMode || m.copyMode || m.imagePickMode {
+	if m.helpMode || m.scheduleViewMode || m.copyMode || m.imagePickMode || m.reactMode {
 		var bodyText string
 		switch {
+		case m.helpMode:
+			bodyText = m.helpBody()
 		case m.copyMode:
 			bodyText = m.copyPickerBody()
 		case m.imagePickMode:
 			bodyText = m.imagePickerBody()
+		case m.reactMode:
+			bodyText = m.reactBody()
 		default:
 			bodyText = m.scheduleViewBody()
 		}
@@ -60,6 +64,42 @@ func (m Model) View() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
 	return lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
+}
+
+func (m Model) reactBody() string {
+	if m.reactPhase == 0 {
+		title := statusStyle.Render("React — pick a message")
+		if len(m.posts) == 0 {
+			return title + "\n\n  No messages."
+		}
+		var b strings.Builder
+		b.WriteString(title + "\n\n")
+		for i, p := range m.posts {
+			line := fmt.Sprintf("%s  %s: %s", p.time, p.author, firstLineTUI(p.message))
+			if i == m.reactCursor {
+				line = emojiSelStyle.Render(line)
+			}
+			b.WriteString("  " + line + "\n")
+		}
+		return b.String()
+	}
+
+	// phase 1: emoji search
+	var b strings.Builder
+	b.WriteString(statusStyle.Render("React — search emoji") + "\n\n")
+	b.WriteString("  " + m.reactInput.View() + "\n\n")
+	if len(m.reactMatches) == 0 {
+		b.WriteString("  type at least 2 letters…")
+		return b.String()
+	}
+	for i, e := range m.reactMatches {
+		line := fmt.Sprintf("%s  :%s:", e.glyph, e.short)
+		if i == m.reactEmojiCursor {
+			line = emojiSelStyle.Render(line)
+		}
+		b.WriteString("  " + line + "\n")
+	}
+	return b.String()
 }
 
 func (m Model) imagePickerBody() string {
@@ -138,6 +178,9 @@ func (m Model) emojiPopupView(width, rows int) string {
 }
 
 func (m Model) footer() string {
+	if m.helpMode {
+		return footerStyle.Width(m.width).Render("help · any key closes")
+	}
 	if m.aliasMode {
 		return footerStyle.Width(m.width).
 			Render("alias for @" + m.aliasUser + ": " + m.aliasInput.View() + "  (enter saves · esc cancels)")
@@ -155,7 +198,13 @@ func (m Model) footer() string {
 	if m.imagePickMode {
 		return footerStyle.Width(m.width).Render("images · j/k move · enter view · esc close")
 	}
-	help := "enter open · scroll-up=history · s scheduled · a alias · ctrl+s send · y copy · i images · q quit"
+	if m.reactMode {
+		if m.reactPhase == 0 {
+			return footerStyle.Width(m.width).Render("react · j/k pick message · enter next · esc close")
+		}
+		return footerStyle.Width(m.width).Render("react · type emoji · ↑/↓ pick · enter apply · esc back")
+	}
+	help := "enter open · ctrl+s send · + react · y copy · i images · ? help · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }
