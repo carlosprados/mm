@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/muesli/termenv"
+	"github.com/rivo/uniseg"
 
 	"github.com/carlosprados/mm/internal/client"
 	"github.com/carlosprados/mm/internal/schedule"
@@ -159,6 +161,12 @@ type channelItem struct {
 	favorite   bool   // user-favorited channel/DM
 }
 
+// maxItemTextWidth caps the display width of a sidebar item's title/description.
+// It is deliberately narrower than the sidebar's inner width: channel names can
+// carry emoji whose painted width disagrees with what the layout library
+// measures, so we leave a cushion to keep the right border from drifting.
+const maxItemTextWidth = sidebarWidth - 8
+
 // Title renders a favorite star and unread bullet (fixed 3-char prefix for
 // alignment), keeping `name` clean for sorting and filtering.
 func (c channelItem) Title() string {
@@ -169,15 +177,76 @@ func (c channelItem) Title() string {
 	if c.unread {
 		bullet = "●"
 	}
-	t := star + bullet + " " + c.name
+	name := truncateDisplay(sanitizeLabel(c.name), maxItemTextWidth-3) // 3 = "XY " prefix
+	t := star + bullet + " " + name
 	if c.unread && c.mentions > 0 {
 		t += fmt.Sprintf(" (%d)", c.mentions)
 	}
 	return t
 }
 
-func (c channelItem) Description() string  { return c.desc }
+func (c channelItem) Description() string {
+	return truncateDisplay(sanitizeLabel(c.desc), maxItemTextWidth)
+}
 func (c channelItem) FilterValue() string { return c.name + " " + c.desc }
+
+// sanitizeLabel replaces every emoji grapheme cluster with a single '·'. Emoji
+// are painted at a terminal-dependent width (often 1) that disagrees with what
+// the layout library measures (2), which drifts the sidebar's right border; a
+// width-1 placeholder keeps the columns aligned. CJK and other genuinely wide
+// scripts are left untouched (only emoji ranges match).
+func sanitizeLabel(s string) string {
+	var b strings.Builder
+	g := uniseg.NewGraphemes(s)
+	for g.Next() {
+		if clusterIsEmoji(g.Str()) {
+			b.WriteRune('·')
+		} else {
+			b.WriteString(g.Str())
+		}
+	}
+	return b.String()
+}
+
+func clusterIsEmoji(cluster string) bool {
+	for _, r := range cluster {
+		switch {
+		case r >= 0x1F000 && r <= 0x1FAFF, // emoji & symbols planes (incl. flags)
+			r >= 0x2600 && r <= 0x27BF, // misc symbols + dingbats
+			r >= 0x2B00 && r <= 0x2BFF, // arrows/stars symbols
+			r == 0x200D, // zero-width joiner
+			r == 0x20E3, // combining enclosing keycap
+			r == 0xFE0F: // emoji variation selector
+			return true
+		}
+	}
+	return false
+}
+
+// truncateDisplay trims s to at most max display columns, never splitting a
+// grapheme cluster (so multi-codepoint emoji like keycaps or ZWJ sequences stay
+// intact and don't corrupt the line). Width is measured with uniseg, the same
+// segmentation the renderer uses.
+func truncateDisplay(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if uniseg.StringWidth(s) <= max {
+		return s
+	}
+	var b strings.Builder
+	w := 0
+	g := uniseg.NewGraphemes(s)
+	for g.Next() {
+		cw := g.Width()
+		if w+cw > max {
+			break
+		}
+		b.WriteString(g.Str())
+		w += cw
+	}
+	return b.String()
+}
 
 // New builds the initial model bound to an authenticated client.
 func New(ctx context.Context, mm *client.MM) Model {
