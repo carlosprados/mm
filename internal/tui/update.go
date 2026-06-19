@@ -23,7 +23,9 @@ import (
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		return m.resize(msg.Width, msg.Height), nil
+		// Clear the screen on resize: a resized frame can leave residue from the
+		// previous (differently sized) render that a partial repaint won't cover.
+		return m.resize(msg.Width, msg.Height), tea.ClearScreen
 
 	case tea.KeyMsg:
 		switch {
@@ -973,7 +975,11 @@ type dims struct {
 
 func (m Model) layout() dims {
 	const footerH = 1
-	contentH := m.height - footerH
+	// Reserve the terminal's last row. A frame that fills the full height makes
+	// the terminal scroll up one line when the bottom-right cell is written,
+	// which eats the panes' top border. Leaving the last row untouched avoids it.
+	const bottomReserve = 1
+	contentH := m.height - footerH - bottomReserve
 
 	msgInnerW := m.width - sidebarWidth - 2
 	if msgInnerW < 10 {
