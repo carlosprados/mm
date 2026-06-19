@@ -19,6 +19,15 @@ var (
 	emojiSelStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("0")).
 			Background(focusedColor)
+
+	// help popup styles: bold pink section headings, fixed-width key column.
+	helpHeadingStyle = lipgloss.NewStyle().
+				Foreground(focusedColor).
+				Bold(true)
+
+	helpKeyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("250")).
+			Width(14)
 )
 
 // paneStyle returns a bordered box whose border color reflects focus.

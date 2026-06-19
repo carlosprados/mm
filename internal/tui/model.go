@@ -49,6 +49,9 @@ type Model struct {
 	renderer   *glamour.TermRenderer
 	styleName  string // glamour style resolved once at startup (no TTY query in the loop)
 
+	// helpMode shows the keyboard-shortcut popup (toggled with '?').
+	helpMode bool
+
 	// aliasMode captures an alias for the selected DM's user (aliasUser).
 	aliasMode bool
 	aliasUser string
@@ -90,6 +93,15 @@ type Model struct {
 	imageAttachments []imageAttachment
 	imagePickCursor  int
 
+	// react flow: '+' picks a message (phase 0) then an emoji (phase 1).
+	reactMode        bool
+	reactPhase       int // 0 = pick message, 1 = pick emoji
+	reactCursor      int // message index in m.posts
+	reactTarget      string
+	reactInput       textinput.Model
+	reactMatches     []emojiEntry
+	reactEmojiCursor int
+
 	focus  focusArea
 	width  int
 	height int
@@ -119,11 +131,12 @@ type ownPost struct {
 // postLine is a displayed message in the active channel, kept so it can be
 // copied as Markdown source and so its attachments can be located.
 type postLine struct {
-	postID  string
-	time    string
-	author  string
-	message string
-	fileIDs []string
+	postID    string
+	time      string
+	author    string
+	message   string
+	fileIDs   []string
+	reactions string // pre-formatted "👍 2  🎉 1" (empty if none)
 }
 
 // imageAttachment is an image file attached to a message in the active channel.
@@ -199,6 +212,9 @@ func New(ctx context.Context, mm *client.MM) Model {
 	si := textinput.New()
 	si.Placeholder = "+2h  ·  2006-01-02 15:04"
 
+	ri := textinput.New()
+	ri.Placeholder = "emoji"
+
 	return Model{
 		ctx:           ctx,
 		mm:            mm,
@@ -208,12 +224,13 @@ func New(ctx context.Context, mm *client.MM) Model {
 		composer:      ta,
 		aliasInput:    ai,
 		scheduleInput: si,
+		reactInput:    ri,
 		renderer:      r,
 		styleName:     styleName,
 		focus:         focusSidebar,
 		limit:         defaultLimit,
 		deliveringIDs: map[string]bool{},
-		status:        "Select a channel · enter opens · a aliases a DM",
+		status:        "Select a channel · enter opens · ? for help",
 	}
 }
 

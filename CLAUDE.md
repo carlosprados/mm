@@ -109,7 +109,7 @@ mm/
         ├── view.go        — lipgloss layout (sidebar + messages + emoji popup + composer + footer)
         ├── keys.go        — app-level keymap
         ├── messages.go    — tea.Msg types
-        ├── emoji.go       — emoji dataset + ":query" search (kyokomi/emoji)
+        ├── emoji.go       — emoji dataset + ":query" search (model.SystemEmojis)
         └── styles.go      — lipgloss styles
 ```
 
@@ -126,12 +126,18 @@ drains the ping/response channels; on disconnect the TUI reconnects with a
 short backoff. The 20s schedule tick doubles as a safety refresh while the
 socket is down.
 
+- **Help popup**: `?` (outside the composer/filter) toggles a modal listing
+  every keybinding by section (Global / Channel list / Pickers / Messages /
+  Composer). Any key closes it. TUI-only input affordance, like the emoji
+  picker — no CLI/MCP counterpart. Keep `internal/tui/help.go` in sync with the
+  handlers in `update.go`.
+
 TUI extras that stay leveled with the other surfaces:
 - **Edit** your own messages with `↑` (same as `mm edit` / `edit_message`).
 - **Alias** a DM's user with `a` — writes the same `aliases.json` as
   `mm alias` / `manage_alias`.
 - **Emoji picker** on a trailing `:query` in the composer (fuzzy search via
-  `kyokomi/emoji`); inserts the unicode glyph.
+  `model.SystemEmojis` — the exact names Mattermost accepts); inserts the glyph.
 - **Favorites + unread-first sidebar**: favorited channels/DMs (★) pin to the
   top via `client.FavoriteChannels` (`favorite_channel` preferences), then
   unread (`●` + mention count) via `client.ChannelMembers` (LastViewedAt vs
@@ -154,6 +160,10 @@ TUI extras that stay leveled with the other surfaces:
   `maxLoadedPosts` (400): older-prepend drops the newest beyond the cap
   (`keepOldest`), live-append drops the oldest but only while at the bottom
   (`keepNewest`), so reading history is never yanked.
+- **Reactions**: `+` opens a two-phase flow (pick message → search emoji) and
+  calls `client.React` (`SaveReaction`). Existing reactions are rendered under
+  each message from `post.Metadata.Reactions` (no extra calls), glyphs resolved
+  via `emojiGlyph`.
 - **Inline images**: `i` opens an image-attachment picker (file infos via
   `GetFileInfosForPost`, filtered by `image/*` MimeType). Selecting one downloads
   it (`GetFile`) to a temp file and renders it with `chafa` via
