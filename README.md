@@ -30,10 +30,11 @@ Built against Mattermost Server **11.6.x** using the official
 - Attach files to a message: `mm send -f`, the TUI (`ctrl+o`) or MCP `send_message.files`.
 - Resolves user IDs to `@usernames` in batch — no opaque UUIDs.
 - Edit your own messages from the CLI, the TUI (`↑`) or MCP.
+- Delete your own messages (CLI `mm delete`, TUI `d`, MCP `delete_message`) — always confirmed.
 - Schedule messages for later delivery (CLI, TUI `ctrl+t`, MCP); delivered by the TUI while it runs.
 - Configurable aliases: DM a colleague by a short handle (`alex` → `alexandra.hernandez`).
 - Interactive TUI (`mm tui`) built on Bubble Tea: real-time over WebSocket, Markdown rendering, emoji picker, inline images.
-- MCP server (`mm mcp`) with **9 tools**, **3 resources** and **3 prompts**.
+- MCP server (`mm mcp`) with **10 tools**, **3 resources** and **3 prompts**.
 
 ---
 
@@ -265,6 +266,37 @@ attachments** of a post (only its text), and if the admin has set
 `PostEditTimeLimit` the server refuses edits past that window. `--nth` scans the
 50 most recent posts of the channel looking for yours.
 
+### `mm delete` (alias `mm rm`) — delete one of your messages
+
+Deleting is **irreversible** and removes the message for everyone, attachments
+included, so `mm` prints the message and asks before doing it.
+
+| Flag              | Description                                                |
+|-------------------|------------------------------------------------------------|
+| `-c, --channel`   | Target channel. Deletes your last message there.           |
+| `-u, --user`      | Target username or alias. Deletes your last DM message there. |
+| `--nth`           | Delete your Nth most recent message (`1` = the last, default). |
+| `--post`          | Delete a specific post by **ID or permalink**. Mutually exclusive with `--nth`. |
+| `-y, --yes`       | Skip the confirmation prompt.                              |
+
+```console
+$ mm delete -c dev-backend
+About to delete this message:
+  [2026-07-28 09:15] @jane.doe: Deploy listo, revisa logs
+Delete it? [y/N]: y
+Message deleted.
+```
+
+```bash
+mm delete -u alex --nth 2                                  # an earlier one
+mm rm --post 4rmsfuwfafyuiq9qkbcgzjg73y --yes              # no prompt
+```
+
+Without `--yes` on a non-interactive stdin (a pipe, a cron job) `mm` refuses
+rather than assume: a destructive default has no business being implicit. This is
+also the way to replace a wrong attachment, since an **edit cannot change the
+files** of a post — delete it and send it again.
+
 ### `mm schedule` — send messages later
 
 > This server has no scheduled-posts license, so delivery is done by **mm
@@ -360,6 +392,7 @@ scheduled messages carry text only — both are the same limits as `mm send`.
 |-----------------|--------------------------------------------------------------|
 | `tab`           | Cycle focus: sidebar → messages → composer                   |
 | `j` / `k`       | Move within the focused pane (scroll the message pane when focused) |
+| `d`             | On the message pane: delete one of **your** messages — pick it, then `y` confirms |
 | `y`             | On the message pane: open the copy picker — pick a message, `enter`/`y` copies its **Markdown source** to the clipboard |
 | `i`             | On the message pane: open the image picker — pick an attachment, `enter` renders it inline with `chafa` |
 | `+`             | On the message pane: react — pick a message, then search an emoji and `enter` to apply |
@@ -455,6 +488,7 @@ npx @modelcontextprotocol/inspector mm mcp
 | `mm read` (`-u`, `--ids`, `--mine`, `--json`) | `read_channel` (`user`, `mine_only`) | `mm://channel/{name}/messages?limit={n}` | feeds `summarize_channel`, `draft_reply`, `daily_digest`  |
 | `mm send`        | `send_message` | —                                           | —                                                         |
 | `mm edit`        | `edit_message` | —                                           | —                                                         |
+| `mm delete` / `rm` | `delete_message` | —                                        | —                                                         |
 | `mm schedule add`| `schedule_message` | —                                       | —                                                         |
 | `mm schedule list/rm` | `manage_scheduled` | —                                  | —                                                         |
 | `mm alias`       | `manage_alias` | —                                           | —                                                         |

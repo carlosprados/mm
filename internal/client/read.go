@@ -84,6 +84,39 @@ func (mm *MM) ReadMessagesFromChannelID(ctx context.Context, channelID string, o
 	return out, nil
 }
 
+// GetMessage fetches a single post, with its author resolved. Used to show what
+// is about to be deleted before doing it.
+func (mm *MM) GetMessage(ctx context.Context, postID string) (Message, error) {
+	p, _, err := mm.Client.GetPost(ctx, postID, "")
+	if err != nil {
+		return Message{}, fmt.Errorf("post not found: %w", err)
+	}
+	authors, err := mm.ResolveUsernames(ctx, []string{p.UserId})
+	if err != nil {
+		return Message{}, err
+	}
+	return Message{
+		ID:       p.Id,
+		CreateAt: p.CreateAt,
+		UserID:   p.UserId,
+		Author:   authors[p.UserId],
+		Text:     p.Message,
+		FileIDs:  p.FileIds,
+		Own:      p.UserId == mm.UserID,
+	}, nil
+}
+
+// DeletePost deletes a post. This is irreversible from the client's point of
+// view: the server soft-deletes it and it disappears for everyone. Mattermost
+// only allows deleting your own posts unless the account has the
+// delete_others_posts permission.
+func (mm *MM) DeletePost(ctx context.Context, postID string) error {
+	if _, err := mm.Client.DeletePost(ctx, postID); err != nil {
+		return fmt.Errorf("could not delete message: %w", err)
+	}
+	return nil
+}
+
 // OwnPostIDs returns the IDs of the current user's most recent posts in the
 // channel, newest first, scanning a recent window. Used to target "your Nth
 // message back" without needing a post ID.

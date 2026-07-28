@@ -56,7 +56,9 @@ func TestResizeBecomesReady(t *testing.T) {
 // cell doesn't scroll the terminal and eat the panes' top border) nor exceed the
 // width, and the first line must be the top border.
 func TestViewFitsTerminal(t *testing.T) {
-	for _, sz := range [][2]int{{80, 24}, {120, 40}, {100, 30}, {40, 12}} {
+	// Small heights included on purpose: the sidebar list has a minimum height of
+	// its own and used to push the frame past the reserved row below ~12 rows.
+	for _, sz := range [][2]int{{80, 24}, {120, 40}, {100, 30}, {40, 12}, {60, 10}, {80, 8}} {
 		w, h := sz[0], sz[1]
 		m := newTestModel()
 		u, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})

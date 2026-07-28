@@ -34,21 +34,10 @@ var editCmd = &cobra.Command{
 			return err
 		}
 
-		var postID string
-		switch {
-		case editPostID != "":
-			// Accepts a bare ID or the permalink from Mattermost's "Copy link".
-			if postID, err = client.ParsePostRef(editPostID); err != nil {
-				return err
-			}
-		default:
-			channelID, err := mm.ResolveChannelID(ctx, client.Target{Channel: editChannel, User: editUser})
-			if err != nil {
-				return err
-			}
-			if postID, err = mm.NthOwnPostID(ctx, channelID, editNth); err != nil {
-				return err
-			}
+		// --post accepts a bare ID or the permalink from Mattermost's "Copy link".
+		postID, err := resolvePost(ctx, mm, editPostID, editChannel, editUser, editNth)
+		if err != nil {
+			return err
 		}
 
 		if err := mm.EditPost(ctx, postID, editMessage); err != nil {
