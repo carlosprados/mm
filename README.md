@@ -25,7 +25,7 @@ Built against Mattermost Server **11.6.x** using the official
 - Persistent session via `mm login` — no need to re-export env vars per shell.
 - List joined channels (public, private, DMs).
 - List team members with their `@username` handle.
-- Read the last *N* messages from a channel.
+- Read the last *N* messages from a channel **or a DM**, with post IDs (`--ids` / `--json`) so they can be edited.
 - Send a message to a channel **or** a direct message to a user.
 - Attach files to a message: `mm send -f`, the TUI (`ctrl+o`) or MCP `send_message.files`.
 - Resolves user IDs to `@usernames` in batch — no opaque UUIDs.
@@ -172,15 +172,20 @@ mm channels
 mm users
 ```
 
-### `mm read` — read messages from a channel
+### `mm read` — read messages from a channel or DM
 
 | Flag              | Default | Description                          |
 |-------------------|---------|--------------------------------------|
-| `-c, --channel`   | —       | **Required.** Channel name (slug).   |
+| `-c, --channel`   | —       | Channel name (slug). Mutually exclusive with `--user`. |
+| `-u, --user`      | —       | Username **or alias** whose DM to read. Mutually exclusive with `--channel`. |
 | `-n, --limit`     | `20`    | Number of messages to fetch.         |
+| `--ids`           | off     | Show each message's **post ID**.     |
+| `--mine`          | off     | Only your own messages (the editable ones). |
+| `--json`          | off     | Machine-readable output (always includes IDs). |
 
 ```bash
 mm read -c town-square -n 10
+mm read -u alex                    # a DM, by username or alias
 ```
 
 Output is oldest → newest:
@@ -190,6 +195,21 @@ Output is oldest → newest:
 [09:15] @jane.doe: probando ahora
 [09:18] @sam.jones: 👍
 ```
+
+**Getting post IDs.** `mm edit --post <id>` needs an ID, and `--ids` (humans) or
+`--json` (scripts, agents) is how you find one without copying links from the
+web UI:
+
+```bash
+mm read -u alex --mine --ids -n 20
+# [09:15] 4rmsfuwfafyuiq9qkbcgzjg73y @jane.doe: probando ahora
+
+mm read -c dev-backend --json | jq -r '.[] | select(.own) | "\(.id) \(.text)"'
+```
+
+`--json` emits one array of objects with `id`, `time` (RFC3339), `from`, `text`,
+`own` and `file_ids` (when the message has attachments). `--mine` filters the
+fetched window, so combine it with a larger `-n` if you're looking further back.
 
 ### `mm send` — send a message (with optional attachments)
 
@@ -219,20 +239,31 @@ applies.
 
 ### `mm edit` — edit one of your messages
 
-Edits your most recent message in a channel or DM, or a specific post with
-`--post`. You can only edit your own messages.
+Edits your most recent message in a channel or DM, an earlier one with `--nth`,
+or a specific post with `--post`. You can only edit your own messages.
 
 | Flag              | Description                                                |
 |-------------------|------------------------------------------------------------|
 | `-c, --channel`   | Target channel. Edits your last message there.             |
 | `-u, --user`      | Target username or alias. Edits your last DM message there.|
-| `--post`          | Edit a specific post by ID instead of your last message.   |
+| `--nth`           | Edit your Nth most recent message (`1` = the last, default). |
+| `--post`          | Edit a specific post by **ID or permalink**. Mutually exclusive with `--nth`. |
 | `-m, --message`   | **Required.** New message body.                            |
 
 ```bash
 mm edit -c dev-backend -m "Deploy listo (corregido)"
 mm edit -u alex        -m "Perdón, quería decir mañana"
+mm edit -u alex --nth 3 -m "Corrijo el tercero por detrás"
+
+# by post ID (from `mm read --ids`) or straight from Mattermost's "Copy link"
+mm edit --post 4rmsfuwfafyuiq9qkbcgzjg73y -m "…"
+mm edit --post https://chat.acme.com/acme/pl/4rmsfuwfafyuiq9qkbcgzjg73y -m "…"
 ```
+
+Two limits, both from Mattermost rather than `mm`: an edit **never changes the
+attachments** of a post (only its text), and if the admin has set
+`PostEditTimeLimit` the server refuses edits past that window. `--nth` scans the
+50 most recent posts of the channel looking for yours.
 
 ### `mm schedule` — send messages later
 
@@ -421,7 +452,7 @@ npx @modelcontextprotocol/inspector mm mcp
 |------------------|----------------|---------------------------------------------|-----------------------------------------------------------|
 | `mm channels`    | `list_channels`| `mm://team/channels`                        | —                                                         |
 | `mm users`       | `list_users`   | `mm://team/users`                           | —                                                         |
-| `mm read`        | `read_channel` | `mm://channel/{name}/messages?limit={n}`    | feeds `summarize_channel`, `draft_reply`, `daily_digest`  |
+| `mm read` (`-u`, `--ids`, `--mine`, `--json`) | `read_channel` (`user`, `mine_only`) | `mm://channel/{name}/messages?limit={n}` | feeds `summarize_channel`, `draft_reply`, `daily_digest`  |
 | `mm send`        | `send_message` | —                                           | —                                                         |
 | `mm edit`        | `edit_message` | —                                           | —                                                         |
 | `mm schedule add`| `schedule_message` | —                                       | —                                                         |
@@ -436,6 +467,11 @@ npx @modelcontextprotocol/inspector mm mcp
 `send_message` accepts an optional `files` array, mirroring `mm send -f`. The
 paths are read from the filesystem of the **host running `mm mcp`**, not from
 the MCP client's machine.
+
+Every message returned by `read_channel` (and by the message resources) carries
+its `post_id`, which is what `edit_message` needs to target a specific post —
+the same role `mm read --ids` plays for the CLI. `edit_message` also takes `nth`
+to reach an earlier message of your own, and accepts a permalink in `post_id`.
 
 **Prompts** — templates that hydrate themselves with live channel data and
 return ready-to-reason context.

@@ -41,14 +41,21 @@ type listUsersOut struct {
 }
 
 type readChannelIn struct {
-	Channel string `json:"channel" jsonschema:"name of the channel (slug, e.g. town-square)"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"max messages to fetch (default 20)"`
+	Channel  string `json:"channel,omitempty" jsonschema:"name of the channel (slug, e.g. town-square); mutually exclusive with user"`
+	User     string `json:"user,omitempty" jsonschema:"username or alias to read the DM with; mutually exclusive with channel"`
+	Limit    int    `json:"limit,omitempty" jsonschema:"max messages to fetch (default 20)"`
+	MineOnly bool   `json:"mine_only,omitempty" jsonschema:"keep only messages sent by the authenticated user (the editable ones); filters the fetched window"`
 }
 
+// messageInfo carries post_id so a caller can feed it back to edit_message;
+// without it only the caller's own last message is reachable.
 type messageInfo struct {
-	Time string `json:"time"`
-	From string `json:"from"`
-	Text string `json:"text"`
+	PostID  string   `json:"post_id"`
+	Time    string   `json:"time"`
+	From    string   `json:"from"`
+	Text    string   `json:"text"`
+	Own     bool     `json:"own"`
+	FileIDs []string `json:"file_ids,omitempty"`
 }
 
 type readChannelOut struct {
@@ -72,7 +79,8 @@ type sendMessageOut struct {
 type editMessageIn struct {
 	Channel string `json:"channel,omitempty" jsonschema:"target channel (edits your last message there)"`
 	User    string `json:"user,omitempty" jsonschema:"target username or alias for a DM (edits your last message there)"`
-	PostID  string `json:"post_id,omitempty" jsonschema:"edit this specific post instead of your last message"`
+	PostID  string `json:"post_id,omitempty" jsonschema:"edit this specific post instead of your last message; accepts a post ID or a permalink (https://host/team/pl/<post_id>). Read post IDs with read_channel"`
+	Nth     int    `json:"nth,omitempty" jsonschema:"edit your Nth most recent message in the target (1 = the last one, the default). Ignored when post_id is given"`
 	Message string `json:"message" jsonschema:"new message body"`
 }
 
@@ -182,21 +190,19 @@ func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.srv,
 		&mcpsdk.Tool{
 			Name:        "read_channel",
-			Description: "Read the most recent messages from a channel, oldest to newest, with usernames resolved.",
+			Description: "Read the most recent messages from a channel or a DM, oldest to newest, with usernames resolved. Each message includes its post_id, which edit_message accepts. Provide either channel or user, never both.",
 		},
 		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in readChannelIn) (*mcpsdk.CallToolResult, readChannelOut, error) {
-			if in.Channel == "" {
-				return nil, readChannelOut{}, fmt.Errorf("channel is required")
-			}
-			limit := in.Limit
-			if limit <= 0 {
-				limit = 20
-			}
-			msgs, err := s.fetchMessages(ctx, in.Channel, limit)
+			target := client.Target{Channel: in.Channel, User: in.User}
+			msgs, err := s.fetchMessagesFor(ctx, target, in.Limit, in.MineOnly)
 			if err != nil {
 				return nil, readChannelOut{}, err
 			}
-			return nil, readChannelOut{Channel: in.Channel, Messages: msgs}, nil
+			label := in.Channel
+			if label == "" {
+				label = "@" + in.User
+			}
+			return nil, readChannelOut{Channel: label, Messages: msgs}, nil
 		},
 	)
 
@@ -217,19 +223,28 @@ func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.srv,
 		&mcpsdk.Tool{
 			Name:        "edit_message",
-			Description: "Edit one of your own messages. Provide channel or user to edit your last message there, or post_id to target a specific post. Side effect: updates the post. You can only edit your own messages.",
+			Description: "Edit one of your own messages. Provide channel or user to edit your last message there (nth reaches earlier ones), or post_id (ID or permalink) to target a specific post — read_channel returns those IDs. Side effect: updates the post. You can only edit your own messages, and an edit cannot change attachments.",
 		},
 		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in editMessageIn) (*mcpsdk.CallToolResult, editMessageOut, error) {
 			if in.Message == "" {
 				return nil, editMessageOut{}, fmt.Errorf("message is required")
 			}
-			postID := in.PostID
-			if postID == "" {
+			var postID string
+			if in.PostID != "" {
+				var err error
+				if postID, err = client.ParsePostRef(in.PostID); err != nil {
+					return nil, editMessageOut{}, err
+				}
+			} else {
 				channelID, err := s.mm.ResolveChannelID(ctx, client.Target{Channel: in.Channel, User: in.User})
 				if err != nil {
 					return nil, editMessageOut{}, err
 				}
-				if postID, err = s.mm.LastOwnPostID(ctx, channelID); err != nil {
+				nth := in.Nth
+				if nth <= 0 {
+					nth = 1
+				}
+				if postID, err = s.mm.NthOwnPostID(ctx, channelID, nth); err != nil {
 					return nil, editMessageOut{}, err
 				}
 			}
@@ -374,33 +389,28 @@ func (s *Server) registerTools() {
 	)
 }
 
-// fetchMessages is shared by tools and prompts.
+// fetchMessages is shared by tools, resources and prompts. It reads a channel
+// by name; see fetchMessagesFor when a DM target is needed.
 func (s *Server) fetchMessages(ctx context.Context, channelName string, limit int) ([]messageInfo, error) {
-	channel, _, err := s.mm.Client.GetChannelByName(ctx, channelName, s.mm.TeamID, "")
-	if err != nil {
-		return nil, fmt.Errorf("channel not found: %w", err)
-	}
-	posts, _, err := s.mm.Client.GetPostsForChannel(ctx, channel.Id, 0, limit, "", false, false)
-	if err != nil {
-		return nil, fmt.Errorf("could not fetch posts: %w", err)
-	}
+	return s.fetchMessagesFor(ctx, client.Target{Channel: channelName}, limit, false)
+}
 
-	ids := make([]string, 0, len(posts.Order))
-	for _, id := range posts.Order {
-		ids = append(ids, posts.Posts[id].UserId)
-	}
-	usernames, err := s.mm.ResolveUsernames(ctx, ids)
+// fetchMessagesFor reads any target (channel or DM) through the shared client
+// reader, so the MCP surface sees exactly the fields `mm read` does.
+func (s *Server) fetchMessagesFor(ctx context.Context, t client.Target, limit int, mineOnly bool) ([]messageInfo, error) {
+	msgs, err := s.mm.ReadMessages(ctx, t, client.ReadOptions{Limit: limit, OnlyMine: mineOnly})
 	if err != nil {
 		return nil, err
 	}
-
-	out := make([]messageInfo, 0, len(posts.Order))
-	for i := len(posts.Order) - 1; i >= 0; i-- {
-		p := posts.Posts[posts.Order[i]]
+	out := make([]messageInfo, 0, len(msgs))
+	for _, m := range msgs {
 		out = append(out, messageInfo{
-			Time: time.UnixMilli(p.CreateAt).Format(time.RFC3339),
-			From: usernames[p.UserId],
-			Text: p.Message,
+			PostID:  m.ID,
+			Time:    time.UnixMilli(m.CreateAt).Format(time.RFC3339),
+			From:    m.Author,
+			Text:    m.Text,
+			Own:     m.Own,
+			FileIDs: m.FileIDs,
 		})
 	}
 	return out, nil

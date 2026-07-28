@@ -99,19 +99,10 @@ func (mm *MM) SendFilesToChannelID(ctx context.Context, channelID, message strin
 }
 
 // LastOwnPostID returns the ID of the most recent post authored by the current
-// user in the channel, scanning a recent window. Used by `mm edit` / the
-// edit_message MCP tool to edit "your last message" without needing a post ID.
+// user in the channel. Used by `mm edit` / the edit_message MCP tool to edit
+// "your last message" without needing a post ID.
 func (mm *MM) LastOwnPostID(ctx context.Context, channelID string) (string, error) {
-	posts, _, err := mm.Client.GetPostsForChannel(ctx, channelID, 0, 50, "", false, false)
-	if err != nil {
-		return "", fmt.Errorf("could not fetch posts: %w", err)
-	}
-	for _, id := range posts.Order { // Order is newest-first
-		if posts.Posts[id].UserId == mm.UserID {
-			return posts.Posts[id].Id, nil
-		}
-	}
-	return "", fmt.Errorf("no message of yours found in this channel")
+	return mm.NthOwnPostID(ctx, channelID, 1)
 }
 
 // EditPost updates the body of an existing post. The server only allows editing

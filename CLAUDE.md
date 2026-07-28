@@ -48,9 +48,9 @@ Mapping table (keep in sync with the code):
 |------------------------|-------------------|----------------------------------------------|-------------------------------------------------|
 | `mm channels`          | `list_channels`   | `mm://team/channels`                         | —                                               |
 | `mm users`             | `list_users`      | `mm://team/users`                            | —                                               |
-| `mm read -c X -n N`    | `read_channel`    | `mm://channel/{name}/messages?limit=N`       | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
+| `mm read -c X\|-u U -n N` (`--ids`/`--mine`/`--json`) | `read_channel` (`user`, `mine_only`; returns `post_id`) | `mm://channel/{name}/messages?limit=N` | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
 | `mm send …` (`-f` files) | `send_message` (`files`) | —                                     | —                                               |
-| `mm edit …`            | `edit_message`    | —                                            | —                                               |
+| `mm edit …` (`--post` id/permalink, `--nth`) | `edit_message` (`post_id`, `nth`) | —                          | —                                               |
 | `mm schedule add`      | `schedule_message`| —                                            | —                                               |
 | `mm schedule list/rm`  | `manage_scheduled`| —                                            | —                                               |
 | `mm alias add/rm/list` | `manage_alias`    | —                                            | —                                               |
@@ -75,9 +75,9 @@ mm/
 ├── cmd/
 │   ├── root.go        — Cobra root, Execute()
 │   ├── channels.go    — `mm channels`
-│   ├── read.go        — `mm read -c <channel> [-n <limit>]`
+│   ├── read.go        — `mm read -c <channel>|-u <user> [-n N] [--ids|--mine|--json]`
 │   ├── send.go        — `mm send [-c <channel>|-u <username>] -m <message>`
-│   ├── edit.go        — `mm edit [-c <channel>|-u <username>] [--post <id>] -m <message>`
+│   ├── edit.go        — `mm edit [-c <channel>|-u <username>] [--post <id|permalink>|--nth N] -m <message>`
 │   ├── schedule.go    — `mm schedule add|list|rm` — server-side scheduled posts
 │   ├── users.go       — `mm users`
 │   ├── alias.go       — `mm alias add|rm|list` — short handles → usernames
@@ -93,6 +93,8 @@ mm/
     ├── client/
     │   ├── mattermost.go  — MM struct, New(), env+config precedence
     │   ├── files.go       — UploadFiles (attachments), MaxFilesPerPost
+    │   ├── postref.go     — ParsePostRef: post ID or permalink → post ID
+    │   ├── read.go        — Message, ReadMessages, OwnPostIDs/NthOwnPostID (shared reader)
     │   └── messaging.go   — Target, ResolveChannelID, Send(Files), EditPost (shared by CLI/TUI/MCP)
     ├── config/
     │   └── config.go      — XDG-aware credential persistence (0600)
