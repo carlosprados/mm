@@ -23,7 +23,7 @@ func TestSplitPaths(t *testing.T) {
 		{`"my file.txt"`, []string{"my file.txt"}},
 		{`"my file.txt" other.png`, []string{"my file.txt", "other.png"}},
 		{`my\ file.txt`, []string{"my file.txt"}},
-		{"~/Dropbox/a.pdf", []string{"~/Dropbox/a.pdf"}},
+		{"~/Docs/a.pdf", []string{"~/Docs/a.pdf"}},
 		{"", nil},
 		{"   ", nil},
 	}

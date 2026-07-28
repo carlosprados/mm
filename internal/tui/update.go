@@ -1237,7 +1237,7 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 			}
 		}
 
-		// Alias store lets DMs show "luis" instead of "@luisdavid.francisco".
+		// Alias store lets DMs show "alex" instead of "@alexandra.hernandez".
 		aliases, _ := alias.Load()
 
 		// Per-channel read state for unread prioritization (best-effort).

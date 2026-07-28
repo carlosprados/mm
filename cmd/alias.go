@@ -13,7 +13,7 @@ var aliasCmd = &cobra.Command{
 	Use:   "alias",
 	Short: "Manage short handles that map to canonical usernames",
 	Long: "Aliases let you DM a colleague by a short handle. For example, after\n" +
-		"'mm alias add luis luisdavid.francisco' you can run 'mm send -u luis -m ...'.\n" +
+		"'mm alias add alex alexandra.hernandez' you can run 'mm send -u alex -m ...'.\n" +
 		"Several aliases may point to the same username.",
 }
 

@@ -31,7 +31,7 @@ Built against Mattermost Server **11.6.x** using the official
 - Resolves user IDs to `@usernames` in batch — no opaque UUIDs.
 - Edit your own messages from the CLI, the TUI (`↑`) or MCP.
 - Schedule messages for later delivery (CLI, TUI `ctrl+t`, MCP); delivered by the TUI while it runs.
-- Configurable aliases: DM a colleague by a short handle (`luis` → `luisdavid.francisco`).
+- Configurable aliases: DM a colleague by a short handle (`alex` → `alexandra.hernandez`).
 - Interactive TUI (`mm tui`) built on Bubble Tea: real-time over WebSocket, Markdown rendering, emoji picker, inline images.
 - MCP server (`mm mcp`) with **9 tools**, **3 resources** and **3 prompts**.
 
@@ -102,11 +102,11 @@ You'll be prompted for the server URL, the token (silent input — no echo) and
 the team slug:
 
 ```text
-Server URL (e.g. https://chat.example.com): https://chat.amplia.es
+Server URL (e.g. https://chat.example.com): https://chat.acme.com
 Personal Access Token:
-Team name (slug, optional, press enter to skip): amplia
-✓ Logged in as @carlos.prados at https://chat.amplia.es (team: amplia)
-Config saved to /home/charlie/.config/mm/config.json
+Team name (slug, optional, press enter to skip): acme
+✓ Logged in as @jane.doe at https://chat.acme.com (team: acme)
+Config saved to ~/.config/mm/config.json
 ```
 
 `mm` validates the token against the server **before** saving. The config file
@@ -116,7 +116,7 @@ is written with mode `0600` at `$XDG_CONFIG_HOME/mm/config.json` (defaults to
 You can pass any field as a flag to skip its prompt:
 
 ```bash
-mm login --url https://chat.amplia.es --team amplia
+mm login --url https://chat.acme.com --team acme
 # only the token is asked interactively
 ```
 
@@ -163,7 +163,7 @@ mm channels
 ```text
 [public ] town-square
 [private] dev-backend
-[dm     ] juan.garcia__carlos.prados
+[dm     ] john.smith__jane.doe
 ```
 
 ### `mm users` — list team members
@@ -186,9 +186,9 @@ mm read -c town-square -n 10
 Output is oldest → newest:
 
 ```text
-[09:14] @juan.garcia: deploy listo en staging
-[09:15] @carlos.prados: probando ahora
-[09:18] @maria.lopez: 👍
+[09:14] @john.smith: deploy listo en staging
+[09:15] @jane.doe: probando ahora
+[09:18] @sam.jones: 👍
 ```
 
 ### `mm send` — send a message (with optional attachments)
@@ -202,12 +202,12 @@ Output is oldest → newest:
 
 ```bash
 mm send -c dev-backend -m "Deploy listo, revisa logs"
-mm send -u juan.garcia  -m "¿Tienes un momento?"
-mm send -u luis         -m "¿Tienes un momento?"   # luis is an alias
+mm send -u john.smith  -m "¿Tienes un momento?"
+mm send -u alex         -m "¿Tienes un momento?"   # alex is an alias
 
 # attachments
 mm send -c dev-backend -m "Logs del fallo" -f ./error.log
-mm send -u luis -f ./informe.pdf -f ./captura.png   # no body, attachments only
+mm send -u alex -f ./informe.pdf -f ./captura.png   # no body, attachments only
 ```
 
 At least one of `--message` / `--file` is required. Files are uploaded to the
@@ -231,7 +231,7 @@ Edits your most recent message in a channel or DM, or a specific post with
 
 ```bash
 mm edit -c dev-backend -m "Deploy listo (corregido)"
-mm edit -u luis        -m "Perdón, quería decir mañana"
+mm edit -u alex        -m "Perdón, quería decir mañana"
 ```
 
 ### `mm schedule` — send messages later
@@ -245,7 +245,7 @@ mm edit -u luis        -m "Perdón, quería decir mañana"
 
 ```bash
 mm schedule add -c dev-backend -m "Buenos días, recordad la demo" --at "2026-06-09 09:00"
-mm schedule add -u luis -m "Te llamo en un rato" --at "+2h"
+mm schedule add -u alex -m "Te llamo en un rato" --at "+2h"
 mm schedule list
 mm schedule rm <id>
 ```
@@ -255,17 +255,17 @@ relative `"+2h"` / `"+90m"`.
 
 ### `mm alias` — short handles for colleagues
 
-Map a short handle to a canonical username so you can DM `luisdavid.francisco`
-by typing `luis` (or `luisete`). Several aliases may point to the same user.
+Map a short handle to a canonical username so you can DM `alexandra.hernandez`
+by typing `alex` (or `sandra`). Several aliases may point to the same user.
 Aliases are resolved by `mm send -u`, by the TUI and by the MCP `send_message`
 tool. They are stored in `$XDG_CONFIG_HOME/mm/aliases.json` (mode `0644`, no
 secrets).
 
 ```bash
-mm alias add luis luisdavid.francisco
-mm alias add luisete luisdavid.francisco
+mm alias add alex alexandra.hernandez
+mm alias add sandra alexandra.hernandez
 mm alias list
-mm alias rm luisete
+mm alias rm sandra
 ```
 
 ### Other commands
