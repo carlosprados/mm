@@ -18,6 +18,11 @@ var (
 			Foreground(lipgloss.Color("212")).
 			Bold(true)
 
+	// deleteWarnStyle marks the irreversible-delete warning.
+	deleteWarnStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("203")). // red
+			Bold(true)
+
 	// emojiSelStyle highlights the selected row in the emoji picker.
 	emojiSelStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("0")).

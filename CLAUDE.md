@@ -51,6 +51,7 @@ Mapping table (keep in sync with the code):
 | `mm read -c X\|-u U -n N` (`--ids`/`--mine`/`--json`) | `read_channel` (`user`, `mine_only`; returns `post_id`) | `mm://channel/{name}/messages?limit=N` | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
 | `mm send …` (`-f` files) | `send_message` (`files`) | —                                     | —                                               |
 | `mm edit …` (`--post` id/permalink, `--nth`) | `edit_message` (`post_id`, `nth`) | —                          | —                                               |
+| `mm delete\|rm …` (confirms, `-y` skips) | `delete_message` (requires `confirm: true`) | —                | —                                               |
 | `mm schedule add`      | `schedule_message`| —                                            | —                                               |
 | `mm schedule list/rm`  | `manage_scheduled`| —                                            | —                                               |
 | `mm alias add/rm/list` | `manage_alias`    | —                                            | —                                               |
@@ -78,6 +79,8 @@ mm/
 │   ├── read.go        — `mm read -c <channel>|-u <user> [-n N] [--ids|--mine|--json]`
 │   ├── send.go        — `mm send [-c <channel>|-u <username>] -m <message>`
 │   ├── edit.go        — `mm edit [-c <channel>|-u <username>] [--post <id|permalink>|--nth N] -m <message>`
+│   ├── delete.go      — `mm delete|rm [-c X|-u U] [--post <id|permalink>|--nth N] [-y]`
+│   ├── postref.go     — resolvePost: shared --post/--nth targeting for edit & delete
 │   ├── schedule.go    — `mm schedule add|list|rm` — server-side scheduled posts
 │   ├── users.go       — `mm users`
 │   ├── alias.go       — `mm alias add|rm|list` — short handles → usernames
@@ -103,7 +106,7 @@ mm/
     │   └── time.go        — ParseTime (shared by CLI/TUI/MCP)
     ├── mcp/
     │   ├── server.go      — wires up tools/resources/prompts
-    │   ├── tools.go       — 9 tools
+    │   ├── tools.go       — 10 tools
     │   ├── resources.go   — 3 resources (1 fixed + 2 templated)
     │   └── prompts.go     — 3 prompts
     └── tui/               — interactive terminal UI (Bubble Tea)
@@ -138,6 +141,13 @@ socket is down.
 Layout invariants (see `internal/tui/view.go` + `layout()`): `View()` is hard-
 clamped to the terminal size and `layout()` reserves the bottom row — a frame
 that fills the full height scrolls the terminal and eats the panes' top border.
+Panes carry minimum sizes of their own (the sidebar list is ~8 rows whatever the
+budget; the composer never shrinks), and content wider than a pane *wraps*, which
+grows it just as extra lines do. `clampBody(s, rows, width)` therefore clamps on
+both axes and is applied to the sidebar, to every modal body, and finally to the
+assembled body against `dims.contentH`. Without it any terminal under ~12 rows —
+or any modal with content — broke the invariant. `TestViewFitsTerminal`,
+`TestViewFitsTerminalWithModalContent` and `TestClampBody` guard this.
 Sidebar item titles run through `sanitizeLabel` (emoji grapheme clusters →
 width-1 `·`) and `truncateDisplay`: emoji are painted at a terminal-dependent
 width that disagrees with what lipgloss/uniseg measures, which otherwise drifts
@@ -181,6 +191,12 @@ TUI extras that stay leveled with the other surfaces:
   `tea.ExecProcess` — the TUI is suspended so chafa's sixel/kitty/iterm output
   isn't clobbered by the renderer; the temp file is removed on return. External
   binary dependency: `chafa`.
+- **Delete**: `d` on the message pane opens a picker built from
+  `ownPostIndices()` — **only your own messages are selectable**, so a stray key
+  can't aim at someone else's — then `enter` shows a confirmation and only `y`
+  deletes (`client.DeletePost`). Any other key backs out. Same capability as
+  `mm delete` / `delete_message`. The list is windowed around the cursor
+  (`visibleWindow`) so the message you are about to delete is always visible.
 - **Attachments**: `ctrl+o` opens a path prompt that queues files onto the next
   message (`internal/tui/attach.go`: quoted/escaped spaces, `~`, globs; every
   path validated at queue time by `client.ValidateAttachment`, the same rule the

@@ -46,6 +46,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleScheduleKey(msg)
 		case m.attachMode:
 			return m.handleAttachKey(msg)
+		case m.deleteMode:
+			return m.handleDeleteKey(msg)
 		default:
 			return m.handleKey(msg)
 		}
@@ -140,6 +142,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sentMsg:
+		if msg.channelID == m.activeChannelID {
+			return m, m.loadPostsCmd(msg.channelID)
+		}
+		return m, nil
+
+	case deletedMsg:
+		m.status = "message deleted"
 		if msg.channelID == m.activeChannelID {
 			return m, m.loadPostsCmd(msg.channelID)
 		}
@@ -401,6 +410,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.status = "loading attachments…"
 		return m, m.loadAttachmentsCmd()
+
+	// Delete one of your own messages: 'd' from the messages pane.
+	case msg.String() == "d" && m.focus == focusMessages && len(m.posts) > 0:
+		m.deleteCandidates = m.ownPostIndices()
+		if len(m.deleteCandidates) == 0 {
+			m.status = "no messages of yours in this channel"
+			return m, nil
+		}
+		m.deleteMode = true
+		m.deleteConfirm = false
+		m.deleteCursor = len(m.deleteCandidates) - 1 // default to your most recent
+		m.status = "delete: pick one of your messages"
+		return m, nil
 
 	// Open the copy picker from the messages pane.
 	case msg.String() == "y" && m.focus == focusMessages && len(m.posts) > 0:
@@ -704,6 +726,72 @@ func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// ownPostIndices returns the indices in m.posts authored by the current user —
+// the only ones the delete picker offers, so a stray keypress can't aim at
+// someone else's message.
+func (m Model) ownPostIndices() []int {
+	var idx []int
+	for i, p := range m.posts {
+		if p.author == "@"+m.mm.Username {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
+
+// handleDeleteKey drives the delete picker: pick a message, then confirm. It is
+// two steps on purpose — deleting is irreversible and removes the message for
+// everyone.
+func (m Model) handleDeleteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+
+	if m.deleteConfirm {
+		switch msg.String() {
+		case "y":
+			i := m.deleteCandidates[m.deleteCursor]
+			postID := m.posts[i].postID
+			m.deleteMode = false
+			m.deleteConfirm = false
+			m.status = "deleting…"
+			return m, m.deleteCmd(postID)
+		default: // any other key backs out to the picker
+			m.deleteConfirm = false
+			m.status = "delete: pick one of your messages"
+			return m, nil
+		}
+	}
+
+	switch msg.String() {
+	case "esc", "q":
+		m.deleteMode = false
+		m.status = "delete cancelled"
+	case "down", "j":
+		if m.deleteCursor < len(m.deleteCandidates)-1 {
+			m.deleteCursor++
+		}
+	case "up", "k":
+		if m.deleteCursor > 0 {
+			m.deleteCursor--
+		}
+	case "enter", "d":
+		m.deleteConfirm = true
+		m.status = "delete this message? y confirms, any other key cancels"
+	}
+	return m, nil
+}
+
+func (m Model) deleteCmd(postID string) tea.Cmd {
+	return func() tea.Msg {
+		if err := m.mm.DeletePost(m.ctx, postID); err != nil {
+			return errMsg{err}
+		}
+		return deletedMsg{channelID: m.activeChannelID}
+	}
+}
+
 // handleHelpKey closes the shortcut popup on any key (ctrl+c still quits).
 func (m Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
@@ -718,7 +806,8 @@ func (m Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // mode or filter that a reordering would disrupt).
 func (m Model) idleForReload() bool {
 	return m.list.FilterState() != list.Filtering &&
-		!m.aliasMode && !m.scheduleMode && !m.scheduleViewMode && !m.attachMode
+		!m.aliasMode && !m.scheduleMode && !m.scheduleViewMode && !m.attachMode &&
+		!m.deleteMode
 }
 
 // handleCopyKey drives the message copy picker; enter/y copies the selected
@@ -1052,6 +1141,9 @@ type dims struct {
 	msgInnerW      int
 	messagesInnerH int
 	popupRows      int
+	// contentH is every row above the footer that the frame may use. Panes have
+	// their own minimum sizes, so View() clamps the assembled body to it.
+	contentH int
 }
 
 func (m Model) layout() dims {
@@ -1090,6 +1182,7 @@ func (m Model) layout() dims {
 		msgInnerW:      msgInnerW,
 		messagesInnerH: messagesInnerH,
 		popupRows:      popupRows,
+		contentH:       contentH,
 	}
 }
 

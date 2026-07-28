@@ -84,6 +84,20 @@ type editMessageIn struct {
 	Message string `json:"message" jsonschema:"new message body"`
 }
 
+type deleteMessageIn struct {
+	Channel string `json:"channel,omitempty" jsonschema:"target channel (deletes your last message there)"`
+	User    string `json:"user,omitempty" jsonschema:"target username or alias for a DM (deletes your last message there)"`
+	PostID  string `json:"post_id,omitempty" jsonschema:"delete this specific post; accepts a post ID or a permalink. Read post IDs with read_channel"`
+	Nth     int    `json:"nth,omitempty" jsonschema:"delete your Nth most recent message in the target (1 = the last one, the default). Ignored when post_id is given"`
+	Confirm bool   `json:"confirm" jsonschema:"must be true: deleting is irreversible and removes the message for everyone. Read the message first so you delete the right one"`
+}
+
+type deleteMessageOut struct {
+	OK      bool   `json:"ok"`
+	PostID  string `json:"post_id"`
+	Deleted string `json:"deleted"` // the text that was removed, so the caller can report it
+}
+
 type editMessageOut struct {
 	OK     bool   `json:"ok"`
 	PostID string `json:"post_id"`
@@ -229,29 +243,39 @@ func (s *Server) registerTools() {
 			if in.Message == "" {
 				return nil, editMessageOut{}, fmt.Errorf("message is required")
 			}
-			var postID string
-			if in.PostID != "" {
-				var err error
-				if postID, err = client.ParsePostRef(in.PostID); err != nil {
-					return nil, editMessageOut{}, err
-				}
-			} else {
-				channelID, err := s.mm.ResolveChannelID(ctx, client.Target{Channel: in.Channel, User: in.User})
-				if err != nil {
-					return nil, editMessageOut{}, err
-				}
-				nth := in.Nth
-				if nth <= 0 {
-					nth = 1
-				}
-				if postID, err = s.mm.NthOwnPostID(ctx, channelID, nth); err != nil {
-					return nil, editMessageOut{}, err
-				}
+			postID, err := s.resolvePost(ctx, in.PostID, client.Target{Channel: in.Channel, User: in.User}, in.Nth)
+			if err != nil {
+				return nil, editMessageOut{}, err
 			}
 			if err := s.mm.EditPost(ctx, postID, in.Message); err != nil {
 				return nil, editMessageOut{}, err
 			}
 			return nil, editMessageOut{OK: true, PostID: postID}, nil
+		},
+	)
+
+	mcpsdk.AddTool(s.srv,
+		&mcpsdk.Tool{
+			Name:        "delete_message",
+			Description: "Delete one of your own messages, including any attachments it carries. Provide channel or user to delete your last message there (nth reaches earlier ones), or post_id (ID or permalink). Side effect: IRREVERSIBLE — the message disappears for everyone. confirm must be true, and you should read the message first to be sure it is the right one.",
+		},
+		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in deleteMessageIn) (*mcpsdk.CallToolResult, deleteMessageOut, error) {
+			if !in.Confirm {
+				return nil, deleteMessageOut{}, fmt.Errorf("refusing to delete without confirm=true (deleting is irreversible)")
+			}
+			postID, err := s.resolvePost(ctx, in.PostID, client.Target{Channel: in.Channel, User: in.User}, in.Nth)
+			if err != nil {
+				return nil, deleteMessageOut{}, err
+			}
+			// Read it before deleting so the result can say what went.
+			msg, err := s.mm.GetMessage(ctx, postID)
+			if err != nil {
+				return nil, deleteMessageOut{}, err
+			}
+			if err := s.mm.DeletePost(ctx, postID); err != nil {
+				return nil, deleteMessageOut{}, err
+			}
+			return nil, deleteMessageOut{OK: true, PostID: postID, Deleted: msg.Text}, nil
 		},
 	)
 
@@ -387,6 +411,23 @@ func (s *Server) registerTools() {
 			}, nil
 		},
 	)
+}
+
+// resolvePost turns a tool's post targeting arguments into a post ID: an
+// explicit post_id (ID or permalink) wins, otherwise it is the caller's Nth most
+// recent message in the target. Shared by edit_message and delete_message.
+func (s *Server) resolvePost(ctx context.Context, postRef string, t client.Target, nth int) (string, error) {
+	if postRef != "" {
+		return client.ParsePostRef(postRef)
+	}
+	channelID, err := s.mm.ResolveChannelID(ctx, t)
+	if err != nil {
+		return "", err
+	}
+	if nth <= 0 {
+		nth = 1
+	}
+	return s.mm.NthOwnPostID(ctx, channelID, nth)
 }
 
 // fetchMessages is shared by tools, resources and prompts. It reads a channel
