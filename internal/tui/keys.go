@@ -11,6 +11,7 @@ type keyMap struct {
 	Refresh  key.Binding
 	Send     key.Binding
 	Schedule key.Binding
+	Attach   key.Binding
 	Quit     key.Binding
 }
 
@@ -39,6 +40,12 @@ func defaultKeys() keyMap {
 		Schedule: key.NewBinding(
 			key.WithKeys("ctrl+t"),
 			key.WithHelp("ctrl+t", "schedule"),
+		),
+		// ctrl+o ("open a file"): unlike ctrl+u/ctrl+k it is not bound by the
+		// composer textarea, so no editing shortcut is shadowed.
+		Attach: key.NewBinding(
+			key.WithKeys("ctrl+o"),
+			key.WithHelp("ctrl+o", "attach file"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),

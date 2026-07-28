@@ -52,6 +52,7 @@ var (
 		}},
 		{"Composer", []helpBinding{
 			{"ctrl+s", "send"},
+			{"ctrl+o", "attach file(s)"},
 			{"ctrl+t", "schedule for later"},
 			{"↑", "edit previous message"},
 			{"↓", "newer / restore draft"},

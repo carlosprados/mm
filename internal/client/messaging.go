@@ -52,21 +52,46 @@ func (mm *MM) ResolveChannelID(ctx context.Context, t Target) (string, error) {
 // Send posts a message immediately. It returns the resolved channel ID and the
 // created post ID.
 func (mm *MM) Send(ctx context.Context, t Target, message string) (channelID, postID string, err error) {
+	return mm.SendFiles(ctx, t, message, nil)
+}
+
+// SendFiles posts a message with local file attachments. The files are uploaded
+// to the resolved channel first and then claimed by the post. With no paths it
+// behaves exactly like Send.
+func (mm *MM) SendFiles(ctx context.Context, t Target, message string, paths []string) (channelID, postID string, err error) {
 	channelID, err = mm.ResolveChannelID(ctx, t)
 	if err != nil {
 		return "", "", err
 	}
-	postID, err = mm.SendToChannelID(ctx, channelID, message)
+	postID, err = mm.SendFilesToChannelID(ctx, channelID, message, paths)
 	return channelID, postID, err
 }
 
 // SendToChannelID posts a message to an already-resolved channel ID. The TUI
 // uses this since it tracks the active channel by ID.
 func (mm *MM) SendToChannelID(ctx context.Context, channelID, message string) (postID string, err error) {
-	if message == "" {
+	return mm.SendFilesToChannelID(ctx, channelID, message, nil)
+}
+
+// SendFilesToChannelID posts a message with attachments to an already-resolved
+// channel ID. A message body is optional when there is at least one attachment.
+func (mm *MM) SendFilesToChannelID(ctx context.Context, channelID, message string, paths []string) (postID string, err error) {
+	if message == "" && len(paths) == 0 {
 		return "", fmt.Errorf("message is required")
 	}
-	post, _, err := mm.Client.CreatePost(ctx, &model.Post{ChannelId: channelID, Message: message})
+
+	var fileIDs []string
+	if len(paths) > 0 {
+		if fileIDs, err = mm.UploadFiles(ctx, channelID, paths); err != nil {
+			return "", err
+		}
+	}
+
+	post, _, err := mm.Client.CreatePost(ctx, &model.Post{
+		ChannelId: channelID,
+		Message:   message,
+		FileIds:   fileIDs,
+	})
 	if err != nil {
 		return "", fmt.Errorf("could not send message: %w", err)
 	}

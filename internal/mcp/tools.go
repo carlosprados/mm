@@ -57,9 +57,10 @@ type readChannelOut struct {
 }
 
 type sendMessageIn struct {
-	Channel string `json:"channel,omitempty" jsonschema:"target channel name (mutually exclusive with user)"`
-	User    string `json:"user,omitempty" jsonschema:"target username for a DM (mutually exclusive with channel)"`
-	Message string `json:"message" jsonschema:"message body"`
+	Channel string   `json:"channel,omitempty" jsonschema:"target channel name (mutually exclusive with user)"`
+	User    string   `json:"user,omitempty" jsonschema:"target username for a DM (mutually exclusive with channel)"`
+	Message string   `json:"message" jsonschema:"message body (optional when files are attached)"`
+	Files   []string `json:"files,omitempty" jsonschema:"paths of local files to attach; they are read from the filesystem of the host running this MCP server, max 10"`
 }
 
 type sendMessageOut struct {
@@ -202,10 +203,10 @@ func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.srv,
 		&mcpsdk.Tool{
 			Name:        "send_message",
-			Description: "Send a message to a channel or as a direct message to a user. The user field accepts either a canonical username or a configured alias. Side effect: creates a post. Provide either channel or user, never both.",
+			Description: "Send a message to a channel or as a direct message to a user, optionally attaching local files. The user field accepts either a canonical username or a configured alias. Side effect: creates a post (and uploads any attachments). Provide either channel or user, never both.",
 		},
 		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in sendMessageIn) (*mcpsdk.CallToolResult, sendMessageOut, error) {
-			channelID, postID, err := s.mm.Send(ctx, client.Target{Channel: in.Channel, User: in.User}, in.Message)
+			channelID, postID, err := s.mm.SendFiles(ctx, client.Target{Channel: in.Channel, User: in.User}, in.Message, in.Files)
 			if err != nil {
 				return nil, sendMessageOut{}, err
 			}

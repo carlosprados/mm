@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -18,11 +19,12 @@ import (
 
 func newTestModel() Model {
 	return Model{
-		keys:      defaultKeys(),
-		list:      list.New(nil, list.NewDefaultDelegate(), 0, 0),
-		viewport:  viewport.New(0, 0),
-		composer:  textarea.New(),
-		styleName: "dark",
+		keys:        defaultKeys(),
+		list:        list.New(nil, list.NewDefaultDelegate(), 0, 0),
+		viewport:    viewport.New(0, 0),
+		composer:    textarea.New(),
+		attachInput: textinput.New(),
+		styleName:   "dark",
 	}
 }
 
