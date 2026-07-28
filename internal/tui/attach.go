@@ -47,7 +47,7 @@ func expandAttachments(line string) ([]string, error) {
 
 // splitPaths splits a line into path tokens on unquoted whitespace. Double
 // quotes and backslash escapes let the user type paths containing spaces, which
-// are common enough (Dropbox, "My Documents") to be worth supporting.
+// are common enough ("My Documents", cloud-synced folders) to be worth supporting.
 func splitPaths(line string) []string {
 	var (
 		tokens []string

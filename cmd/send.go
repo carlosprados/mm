@@ -20,7 +20,7 @@ var sendCmd = &cobra.Command{
 	Short: "Send a message to a channel or user (DM), optionally with file attachments",
 	Example: `  mm send -c dev-backend -m "Deploy listo"
   mm send -c dev-backend -m "Logs del fallo" -f ./error.log
-  mm send -u luis -f ./informe.pdf -f ./captura.png`,
+  mm send -u alex -f ./informe.pdf -f ./captura.png`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if sendMessage == "" && len(sendFiles) == 0 {
 			return fmt.Errorf("provide a message with --message, a file with --file, or both")

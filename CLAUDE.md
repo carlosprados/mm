@@ -2,9 +2,9 @@
 
 ## Context
 
-Go CLI + MCP server to interact with a self-hosted Mattermost Server 11.6.1
-at `https://chat.amplia.es`. Single-binary, Cobra-based, PAT auth, persistent
-session via `mm login`. Built as a dual-mode tool: same functionality is
+Go CLI + MCP server to interact with a self-hosted Mattermost Server 11.6.1.
+Single-binary, Cobra-based, PAT auth, persistent session via `mm login`.
+Built as a dual-mode tool: same functionality is
 exposed via the CLI (for humans) and via MCP (for AI clients like Claude
 Desktop / Claude Code).
 

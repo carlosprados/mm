@@ -1,8 +1,8 @@
 // Package alias maps short, human-friendly handles to canonical Mattermost
-// usernames so users can DM "luisete" instead of "luisdavid.francisco".
+// usernames so users can DM "sandra" instead of "alexandra.hernandez".
 //
 // Aliases are a cross-cutting concept: the same store is consumed by the CLI
-// (`mm send -u luis`, `mm alias`), the TUI and the MCP server, keeping the
+// (`mm send -u alex`, `mm alias`), the TUI and the MCP server, keeping the
 // three surfaces at parity.
 package alias
 
