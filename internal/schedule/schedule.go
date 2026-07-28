@@ -22,7 +22,7 @@ import (
 type Item struct {
 	ID        string    `json:"id"`
 	ChannelID string    `json:"channel_id"`
-	Label     string    `json:"label"` // human target, e.g. "dev-backend" or "@luis"
+	Label     string    `json:"label"` // human target, e.g. "dev-backend" or "@alex"
 	Message   string    `json:"message"`
 	At        time.Time `json:"at"`
 }

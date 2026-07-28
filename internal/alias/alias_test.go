@@ -7,15 +7,15 @@ import (
 
 func TestResolve(t *testing.T) {
 	s := &Store{Aliases: map[string]string{
-		"luis":    "luisdavid.francisco",
-		"luisete": "luisdavid.francisco",
+		"alex":   "alexandra.hernandez",
+		"sandra": "alexandra.hernandez",
 	}}
 
 	cases := map[string]string{
-		"luis":      "luisdavid.francisco", // alias
-		"LUIS":      "luisdavid.francisco", // case-insensitive
-		" luisete ": "luisdavid.francisco", // trims whitespace
-		"marta":     "marta",               // unknown → passthrough
+		"alex":     "alexandra.hernandez", // alias
+		"ALEX":     "alexandra.hernandez", // case-insensitive
+		" sandra ": "alexandra.hernandez", // trims whitespace
+		"marta":    "marta",               // unknown → passthrough
 	}
 	for in, want := range cases {
 		if got := s.Resolve(in); got != want {
@@ -40,37 +40,37 @@ func TestAddValidation(t *testing.T) {
 	if err := s.Add("foo", ""); err == nil {
 		t.Error("empty username should error")
 	}
-	if err := s.Add("Luis", "@luisdavid.francisco"); err != nil {
+	if err := s.Add("Alex", "@alexandra.hernandez"); err != nil {
 		t.Fatalf("valid add errored: %v", err)
 	}
 	// normalized lowercase key, stripped @ from username
-	if s.Aliases["luis"] != "luisdavid.francisco" {
-		t.Errorf("got %q", s.Aliases["luis"])
+	if s.Aliases["alex"] != "alexandra.hernandez" {
+		t.Errorf("got %q", s.Aliases["alex"])
 	}
 }
 
 func TestRemove(t *testing.T) {
-	s := &Store{Aliases: map[string]string{"luis": "luisdavid.francisco"}}
+	s := &Store{Aliases: map[string]string{"alex": "alexandra.hernandez"}}
 	if err := s.Remove("nope"); err == nil {
 		t.Error("removing unknown alias should error")
 	}
-	if err := s.Remove("LUIS"); err != nil {
+	if err := s.Remove("ALEX"); err != nil {
 		t.Errorf("remove should be case-insensitive: %v", err)
 	}
-	if _, ok := s.Aliases["luis"]; ok {
+	if _, ok := s.Aliases["alex"]; ok {
 		t.Error("alias not removed")
 	}
 }
 
 func TestAliasesFor(t *testing.T) {
 	s := &Store{Aliases: map[string]string{
-		"luis":    "luisdavid.francisco",
-		"luisete": "luisdavid.francisco",
-		"marta":   "marta.gomez",
+		"alex":   "alexandra.hernandez",
+		"sandra": "alexandra.hernandez",
+		"marta":  "marta.gomez",
 	}}
-	got := s.AliasesFor("luisdavid.francisco")
-	if len(got) != 2 || got[0] != "luis" || got[1] != "luisete" {
-		t.Errorf("AliasesFor = %v, want [luis luisete]", got)
+	got := s.AliasesFor("alexandra.hernandez")
+	if len(got) != 2 || got[0] != "alex" || got[1] != "sandra" {
+		t.Errorf("AliasesFor = %v, want [alex sandra]", got)
 	}
 }
 
@@ -95,7 +95,7 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 		t.Errorf("expected empty store, got %v", s.Aliases)
 	}
 
-	if err := s.Add("luis", "luisdavid.francisco"); err != nil {
+	if err := s.Add("alex", "alexandra.hernandez"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Save(); err != nil {
@@ -106,7 +106,7 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.Aliases["luis"] != "luisdavid.francisco" {
+	if reloaded.Aliases["alex"] != "alexandra.hernandez" {
 		t.Errorf("round-trip failed: %v", reloaded.Aliases)
 	}
 }

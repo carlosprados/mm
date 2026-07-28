@@ -78,11 +78,11 @@ func TestViewFitsTerminal(t *testing.T) {
 // (and the prefix glyphs) are untouched — the sidebar alignment fix.
 func TestSanitizeLabel(t *testing.T) {
 	cases := map[string]string{
-		"secblured-project":  "secblured-project", // plain text unchanged
-		"🟦🟥secblured":        "··secblured",        // two emoji → two dots
-		"SEI2T - 🔒2️⃣":        "SEI2T - ··",         // lock + keycap (3-cp cluster) → two dots
-		"team_core":          "team_core",
-		"café":               "café",               // accented latin stays
+		"secblured-project": "secblured-project", // plain text unchanged
+		"🟦🟥secblured":       "··secblured",       // two emoji → two dots
+		"SEI2T - 🔒2️⃣":      "SEI2T - ··",        // lock + keycap (3-cp cluster) → two dots
+		"team_core":         "team_core",
+		"café":              "café", // accented latin stays
 	}
 	for in, want := range cases {
 		if got := sanitizeLabel(in); got != want {
@@ -201,7 +201,7 @@ func TestChannelLess(t *testing.T) {
 	unreadOld := channelItem{name: "a", typ: "public", unread: true, lastPostAt: 100}
 	unreadNew := channelItem{name: "z", typ: "dm", unread: true, lastPostAt: 200}
 	readChan := channelItem{name: "dev", typ: "public"}
-	readDM := channelItem{name: "@luis", typ: "dm"}
+	readDM := channelItem{name: "@alex", typ: "dm"}
 
 	// Unread before read.
 	if !channelLess(unreadOld, readChan) {
@@ -219,7 +219,7 @@ func TestChannelLess(t *testing.T) {
 	items := []channelItem{readDM, unreadOld, readChan, unreadNew}
 	sort.SliceStable(items, func(i, j int) bool { return channelLess(items[i], items[j]) })
 	order := []string{items[0].name, items[1].name, items[2].name, items[3].name}
-	want := []string{"z", "a", "dev", "@luis"} // unreadNew, unreadOld, readChan, readDM
+	want := []string{"z", "a", "dev", "@alex"} // unreadNew, unreadOld, readChan, readDM
 	for i := range want {
 		if order[i] != want[i] {
 			t.Errorf("order = %v, want %v", order, want)
@@ -286,10 +286,10 @@ func TestWindowTrim(t *testing.T) {
 
 // TestDMLabel checks alias-aware DM labelling for the sidebar.
 func TestDMLabel(t *testing.T) {
-	store := &alias.Store{Aliases: map[string]string{"luis": "luisdavid.francisco"}}
+	store := &alias.Store{Aliases: map[string]string{"alex": "alexandra.hernandez"}}
 
-	title, desc := dmLabel("luisdavid.francisco", store)
-	if title != "luis" || desc != "@luisdavid.francisco" {
+	title, desc := dmLabel("alexandra.hernandez", store)
+	if title != "alex" || desc != "@alexandra.hernandez" {
 		t.Errorf("aliased DM: got (%q, %q)", title, desc)
 	}
 
