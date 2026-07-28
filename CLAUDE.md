@@ -49,7 +49,7 @@ Mapping table (keep in sync with the code):
 | `mm channels`          | `list_channels`   | `mm://team/channels`                         | —                                               |
 | `mm users`             | `list_users`      | `mm://team/users`                            | —                                               |
 | `mm read -c X -n N`    | `read_channel`    | `mm://channel/{name}/messages?limit=N`       | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
-| `mm send …`            | `send_message`    | —                                            | —                                               |
+| `mm send …` (`-f` files) | `send_message` (`files`) | —                                     | —                                               |
 | `mm edit …`            | `edit_message`    | —                                            | —                                               |
 | `mm schedule add`      | `schedule_message`| —                                            | —                                               |
 | `mm schedule list/rm`  | `manage_scheduled`| —                                            | —                                               |
@@ -92,7 +92,8 @@ mm/
     │   └── alias.go       — alias→username store (aliases.json, 0644), Resolve()
     ├── client/
     │   ├── mattermost.go  — MM struct, New(), env+config precedence
-    │   └── messaging.go   — Target, ResolveChannelID, Send, EditPost (shared by CLI/TUI/MCP)
+    │   ├── files.go       — UploadFiles (attachments), MaxFilesPerPost
+    │   └── messaging.go   — Target, ResolveChannelID, Send(Files), EditPost (shared by CLI/TUI/MCP)
     ├── config/
     │   └── config.go      — XDG-aware credential persistence (0600)
     ├── schedule/
@@ -178,6 +179,15 @@ TUI extras that stay leveled with the other surfaces:
   `tea.ExecProcess` — the TUI is suspended so chafa's sixel/kitty/iterm output
   isn't clobbered by the renderer; the temp file is removed on return. External
   binary dependency: `chafa`.
+- **Attachments**: `ctrl+o` opens a path prompt that queues files onto the next
+  message (`internal/tui/attach.go`: quoted/escaped spaces, `~`, globs; every
+  path validated at queue time by `client.ValidateAttachment`, the same rule the
+  upload applies). `ctrl+s` then sends via `client.SendFilesToChannelID` — a body
+  is optional, like `mm send -f`. Confirming an empty prompt clears the queue;
+  the queue is also dropped on channel switch. Refused while editing (Mattermost
+  edits can't change attachments) and for `ctrl+t` (the schedule store holds text
+  only, same as CLI/MCP). Chosen key: `ctrl+o` is *not* bound by the composer
+  textarea, unlike `ctrl+u`/`ctrl+k`.
 - **Schedule** the composed message with `ctrl+t` (same store as `mm schedule` /
   `schedule_message`). This server has no scheduled-posts license, so delivery
   is **client-side**: the TUI's delivery loop (`scheduleTickCmd`) sends due

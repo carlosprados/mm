@@ -27,6 +27,7 @@ Built against Mattermost Server **11.6.x** using the official
 - List team members with their `@username` handle.
 - Read the last *N* messages from a channel.
 - Send a message to a channel **or** a direct message to a user.
+- Attach files to a message: `mm send -f`, the TUI (`ctrl+o`) or MCP `send_message.files`.
 - Resolves user IDs to `@usernames` in batch — no opaque UUIDs.
 - Edit your own messages from the CLI, the TUI (`↑`) or MCP.
 - Schedule messages for later delivery (CLI, TUI `ctrl+t`, MCP); delivered by the TUI while it runs.
@@ -190,19 +191,31 @@ Output is oldest → newest:
 [09:18] @maria.lopez: 👍
 ```
 
-### `mm send` — send a message
+### `mm send` — send a message (with optional attachments)
 
 | Flag              | Description                                                |
 |-------------------|------------------------------------------------------------|
 | `-c, --channel`   | Target channel name. Mutually exclusive with `--user`.     |
 | `-u, --user`      | Target username **or alias** for a DM. Mutually exclusive with `--channel`. |
-| `-m, --message`   | **Required.** Message body.                                |
+| `-m, --message`   | Message body. Optional when `--file` is given.             |
+| `-f, --file`      | Path to a local file to attach. Repeatable, up to 10 files per message. |
 
 ```bash
 mm send -c dev-backend -m "Deploy listo, revisa logs"
 mm send -u juan.garcia  -m "¿Tienes un momento?"
 mm send -u luis         -m "¿Tienes un momento?"   # luis is an alias
+
+# attachments
+mm send -c dev-backend -m "Logs del fallo" -f ./error.log
+mm send -u luis -f ./informe.pdf -f ./captura.png   # no body, attachments only
 ```
+
+At least one of `--message` / `--file` is required. Files are uploaded to the
+target channel first and then attached to the post, in the order given; if any
+upload fails nothing is posted. Only the base name is sent, so local directory
+paths are not leaked into the channel. Directories and empty files are rejected
+(Mattermost does not accept them), and the server's own upload size limit still
+applies.
 
 ### `mm edit` — edit one of your messages
 
@@ -295,6 +308,23 @@ which auto-detects the best protocol your terminal supports (sixel / kitty /
 iTerm2 / unicode symbols). The TUI is briefly suspended while the image is
 shown; press Enter to return. Requires `chafa` on `PATH`.
 
+**Sending files.** Press `ctrl+o` and type a path to queue an attachment for
+the next message. The prompt accepts **several paths on one line**, `~`, shell
+**globs** and quoted/escaped spaces:
+
+```text
+attach: ~/Downloads/informe.pdf
+attach: ./shots/*.png
+attach: "/home/me/My Docs/nota.txt" ./log.txt
+```
+
+The footer shows what's queued (`[2 files: a.png, b.pdf]`); `ctrl+s` sends
+message + attachments, and the body may be empty. Confirming an **empty** prompt
+clears the queue, `esc` just closes it, and switching channel drops it. Paths are
+checked as you add them (missing files, directories and empty files are rejected
+right away), max 10 files per message. Attachments can't be added to an edit, and
+scheduled messages carry text only — both are the same limits as `mm send`.
+
 | Key             | Action                                                       |
 |-----------------|--------------------------------------------------------------|
 | `tab`           | Cycle focus: sidebar → messages → composer                   |
@@ -306,7 +336,8 @@ shown; press Enter to return. Requires `chafa` on `PATH`.
 | `enter`         | Open the selected channel (marks it read; focus → composer)  |
 | `a`             | On a selected DM: assign an alias to that colleague          |
 | `s`             | Open the scheduled-messages viewer (then `x` cancels one)    |
-| `ctrl+s`        | Send the composed message                                    |
+| `ctrl+s`        | Send the composed message (with any queued attachments)      |
+| `ctrl+o`        | Attach file(s) to the next message — prompts for a path      |
 | `ctrl+t`        | Schedule the composed message (prompts for a delivery time)  |
 | `:` + text      | Emoji picker — fuzzy search, `↑`/`↓` to choose, `enter`/`tab` to insert |
 | `↑` / `↓`       | In the composer: walk back/forward through **your** messages to edit them; `↓` past the newest restores your draft |
@@ -316,6 +347,8 @@ shown; press Enter to return. Requires `chafa` on `PATH`.
 
 - Editing your own messages (the `↑` flow) maps to the same capability as
   `mm edit` and the `edit_message` MCP tool.
+- Attaching with `ctrl+o` uploads through the same path as `mm send -f` and the
+  `send_message` MCP tool's `files` array.
 - Assigning an alias with `a` writes the same `aliases.json` used by
   `mm alias` and the `manage_alias` MCP tool — the three surfaces stay in sync.
 
@@ -399,6 +432,11 @@ npx @modelcontextprotocol/inspector mm mcp
 
 **Tools** — explicit RPC actions (write side effects, parameterized reads).
 **Resources** — pull-model addressable data; some clients prefer them over tools.
+
+`send_message` accepts an optional `files` array, mirroring `mm send -f`. The
+paths are read from the filesystem of the **host running `mm mcp`**, not from
+the MCP client's machine.
+
 **Prompts** — templates that hydrate themselves with live channel data and
 return ready-to-reason context.
 

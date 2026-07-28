@@ -62,6 +62,12 @@ type Model struct {
 	scheduleMode  bool
 	scheduleInput textinput.Model
 
+	// attachMode captures a path (or several) to attach to the next message;
+	// pendingFiles is the queue consumed by the next send.
+	attachMode   bool
+	attachInput  textinput.Model
+	pendingFiles []string
+
 	// Emoji picker: opens on a trailing ":query" in the composer.
 	emojiActive  bool
 	emojiMatches []emojiEntry
@@ -284,6 +290,9 @@ func New(ctx context.Context, mm *client.MM) Model {
 	ri := textinput.New()
 	ri.Placeholder = "emoji"
 
+	fi := textinput.New()
+	fi.Placeholder = "~/path/file.pdf  ·  ./shots/*.png"
+
 	return Model{
 		ctx:           ctx,
 		mm:            mm,
@@ -294,6 +303,7 @@ func New(ctx context.Context, mm *client.MM) Model {
 		aliasInput:    ai,
 		scheduleInput: si,
 		reactInput:    ri,
+		attachInput:   fi,
 		renderer:      r,
 		styleName:     styleName,
 		focus:         focusSidebar,
