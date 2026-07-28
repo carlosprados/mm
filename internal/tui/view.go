@@ -195,6 +195,10 @@ func (m Model) footer() string {
 		return footerStyle.Width(m.width).
 			Render("deliver at: " + m.scheduleInput.View() + "  (enter schedules · esc cancels)")
 	}
+	if m.attachMode {
+		return footerStyle.Width(m.width).
+			Render("attach: " + m.attachInput.View() + "  (enter adds · empty enter clears · esc cancels)")
+	}
 	if m.scheduleViewMode {
 		return footerStyle.Width(m.width).Render("scheduled · j/k move · x cancel · esc close")
 	}
@@ -210,7 +214,14 @@ func (m Model) footer() string {
 		}
 		return footerStyle.Width(m.width).Render("react · type emoji · ↑/↓ pick · enter apply · esc back")
 	}
-	help := "enter open · ctrl+s send · + react · y copy · i images · ? help · q quit"
+	// Queued attachments displace the generic help: what's about to be sent
+	// matters more than the keymap, which '?' shows in full anyway.
+	if len(m.pendingFiles) > 0 {
+		return footerStyle.Width(m.width).Render(
+			statusStyle.Render(attachSummary(m.pendingFiles)) +
+				"  —  ctrl+s sends · ctrl+o adds more · " + m.status)
+	}
+	help := "enter open · ctrl+s send · ctrl+o attach · + react · y copy · i images · ? help · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/mattermost/mattermost/server/public/model"
 
 	"github.com/carlosprados/mm/internal/alias"
+	"github.com/carlosprados/mm/internal/client"
 	"github.com/carlosprados/mm/internal/schedule"
 )
 
@@ -43,6 +44,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleAliasKey(msg)
 		case m.scheduleMode:
 			return m.handleScheduleKey(msg)
+		case m.attachMode:
+			return m.handleAttachKey(msg)
 		default:
 			return m.handleKey(msg)
 		}
@@ -309,9 +312,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Send):
 		return m.sendMessage()
 
+	// Ctrl+O queues local files to attach to the next message.
+	case key.Matches(msg, m.keys.Attach) && !filtering:
+		if m.activeChannelID == "" {
+			m.status = "open a channel first"
+			return m, nil
+		}
+		if m.editing {
+			m.status = "attachments can't be added to an edit"
+			return m, nil
+		}
+		m.attachMode = true
+		m.attachInput.SetValue("")
+		m.attachInput.Focus()
+		m.status = "attach a file"
+		return m, nil
+
 	// Ctrl+T schedules the composed message for later delivery.
 	case key.Matches(msg, m.keys.Schedule) && m.focus == focusComposer:
 		if strings.TrimSpace(m.composer.Value()) == "" || m.activeChannelID == "" {
+			return m, nil
+		}
+		// The schedule store carries text only, like `mm schedule` / schedule_message.
+		if len(m.pendingFiles) > 0 {
+			m.status = "scheduled messages can't carry attachments — ctrl+s sends now"
 			return m, nil
 		}
 		m.scheduleMode = true
@@ -406,9 +430,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.activeChannelID = it.id
 			m.activeChannelName = it.name
 			m.status = "loading " + it.name + "…"
-			// Don't carry a draft or edit state across channels.
+			// Don't carry a draft, edit state or queued attachments across channels.
 			m.exitEdit(false)
 			m.composer.Reset()
+			m.pendingFiles = nil
 			cmd := m.setFocus(focusComposer)
 			// Mark read (clears unread everywhere) and refresh the sidebar.
 			return m, tea.Batch(cmd, m.loadPostsCmd(it.id), m.markReadCmd(it.id))
@@ -423,7 +448,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // edit if the user is editing one of their previous messages.
 func (m Model) sendMessage() (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.composer.Value())
-	if text == "" || m.activeChannelID == "" {
+	// A message with attachments needs no body (same rule as `mm send -f`).
+	if (text == "" && len(m.pendingFiles) == 0) || m.activeChannelID == "" {
 		return m, nil
 	}
 	ch := m.activeChannelID
@@ -436,9 +462,14 @@ func (m Model) sendMessage() (tea.Model, tea.Cmd) {
 		return m, m.editCmd(ch, postID, text)
 	}
 
+	files := m.pendingFiles
+	m.pendingFiles = nil
 	m.composer.Reset()
 	m.status = "sending…"
-	return m, m.sendCmd(ch, text)
+	if len(files) > 0 {
+		m.status = "uploading " + attachSummary(files) + "…"
+	}
+	return m, m.sendCmd(ch, text, files)
 }
 
 // historyOlder steps to an older own message, entering edit mode the first time
@@ -623,6 +654,56 @@ func (m Model) handleScheduleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// handleAttachKey captures one or more paths to attach to the next message.
+// Confirming an empty prompt clears the queue (advertised in the footer), so
+// there is a way back out without sending.
+func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "enter":
+		line := strings.TrimSpace(m.attachInput.Value())
+		m.attachInput.Blur()
+		if line == "" {
+			m.attachMode = false
+			if len(m.pendingFiles) > 0 {
+				m.pendingFiles = nil
+				m.status = "attachments cleared"
+			} else {
+				m.status = "attach cancelled"
+			}
+			return m, nil
+		}
+
+		paths, err := expandAttachments(line)
+		if err != nil {
+			// Keep the prompt open so the path can be corrected in place.
+			m.attachInput.Focus()
+			m.status = "attach: " + err.Error()
+			return m, nil
+		}
+		if len(m.pendingFiles)+len(paths) > client.MaxFilesPerPost {
+			m.attachInput.Focus()
+			m.status = fmt.Sprintf("attach: at most %d files per message", client.MaxFilesPerPost)
+			return m, nil
+		}
+
+		m.pendingFiles = append(m.pendingFiles, paths...)
+		m.attachMode = false
+		m.status = attachSummary(m.pendingFiles) + " ready · ctrl+s sends"
+		return m, m.setFocus(focusComposer)
+	case "esc":
+		m.attachMode = false
+		m.attachInput.Blur()
+		m.status = "attach cancelled"
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.attachInput, cmd = m.attachInput.Update(msg)
+		return m, cmd
+	}
+}
+
 // handleHelpKey closes the shortcut popup on any key (ctrl+c still quits).
 func (m Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
@@ -637,7 +718,7 @@ func (m Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // mode or filter that a reordering would disrupt).
 func (m Model) idleForReload() bool {
 	return m.list.FilterState() != list.Filtering &&
-		!m.aliasMode && !m.scheduleMode && !m.scheduleViewMode
+		!m.aliasMode && !m.scheduleMode && !m.scheduleViewMode && !m.attachMode
 }
 
 // handleCopyKey drives the message copy picker; enter/y copies the selected
@@ -1042,9 +1123,11 @@ func reconnectCmd() tea.Cmd {
 	})
 }
 
-func (m Model) sendCmd(channelID, text string) tea.Cmd {
+// sendCmd posts the message, uploading any queued attachments first. paths may
+// be nil, which is the plain-text path.
+func (m Model) sendCmd(channelID, text string, paths []string) tea.Cmd {
 	return func() tea.Msg {
-		if _, err := m.mm.SendToChannelID(m.ctx, channelID, text); err != nil {
+		if _, err := m.mm.SendFilesToChannelID(m.ctx, channelID, text, paths); err != nil {
 			return errMsg{err}
 		}
 		return sentMsg{channelID: channelID}
