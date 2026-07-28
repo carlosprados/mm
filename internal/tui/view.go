@@ -14,19 +14,24 @@ func (m Model) View() string {
 
 	d := m.layout()
 
+	// The list has a minimum height of its own (title + pagination), so on short
+	// terminals it does not shrink to the budget and would grow the frame past
+	// the reserved bottom row. Clamp it like the modal bodies.
 	sidebar := paneStyle(m.focus == focusSidebar).
 		Width(d.sidebarInnerW).
 		Height(d.sidebarInnerH).
-		Render(m.list.View())
+		Render(clampBody(m.list.View(), d.sidebarInnerH, d.sidebarInnerW))
 
 	var body string
 
 	// Modal pickers take over the right column.
-	if m.helpMode || m.scheduleViewMode || m.copyMode || m.imagePickMode || m.reactMode {
+	if m.helpMode || m.scheduleViewMode || m.copyMode || m.imagePickMode || m.reactMode || m.deleteMode {
 		var bodyText string
 		switch {
 		case m.helpMode:
 			bodyText = m.helpBody()
+		case m.deleteMode:
+			bodyText = m.deletePickerBody(d.sidebarInnerH)
 		case m.copyMode:
 			bodyText = m.copyPickerBody()
 		case m.imagePickMode:
@@ -36,10 +41,13 @@ func (m Model) View() string {
 		default:
 			bodyText = m.scheduleViewBody()
 		}
+		// Clamp the body to the pane's rows: a taller body grows the pane and
+		// pushes the frame into the reserved bottom row, which scrolls the
+		// terminal and eats the top border (see the layout invariants).
 		right := paneStyle(true).
 			Width(d.msgInnerW).
 			Height(d.sidebarInnerH).
-			Render(bodyText)
+			Render(clampBody(bodyText, d.sidebarInnerH, d.msgInnerW))
 		body = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
 	} else {
 		messages := paneStyle(m.focus == focusMessages).
@@ -64,6 +72,13 @@ func (m Model) View() string {
 
 		body = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
 	}
+
+	// Last line of defence: panes carry minimum sizes of their own (the sidebar
+	// list, the composer), so on a very short terminal the assembled body can
+	// still exceed its budget. Clamping here keeps the reserved bottom row free
+	// whatever the panes do — at the cost of a chopped bottom border below ~10
+	// rows, which beats a frame that scrolls the terminal.
+	body = clampBody(body, d.contentH, m.width)
 
 	out := lipgloss.JoinVertical(lipgloss.Left, body, m.footer())
 	// Hard clamp to the real terminal size. A frame one line too tall scrolls
@@ -118,6 +133,77 @@ func (m Model) imagePickerBody() string {
 	for i, img := range m.imageAttachments {
 		line := img.label
 		if i == m.imagePickCursor {
+			line = emojiSelStyle.Render(line)
+		}
+		b.WriteString("  " + line + "\n")
+	}
+	return b.String()
+}
+
+// clampBody fits a modal body into the rows and columns its pane was budgeted.
+// Both axes matter: extra lines grow the pane directly, and an over-wide line
+// wraps, which grows it just the same. Truncation goes through lipgloss so ANSI
+// styling is never cut mid-escape.
+func clampBody(s string, rows, width int) string {
+	if rows <= 0 || width <= 0 {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > rows {
+		lines = lines[:rows]
+	}
+	trunc := lipgloss.NewStyle().MaxWidth(width)
+	for i, line := range lines {
+		lines[i] = trunc.Render(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// visibleWindow returns the [start, end) slice of n rows to show in a picker
+// that has room for `rows`, keeping the cursor inside the window.
+func visibleWindow(n, cursor, rows int) (int, int) {
+	if rows <= 0 || n <= rows {
+		return 0, n
+	}
+	start := cursor - rows/2
+	if start < 0 {
+		start = 0
+	}
+	if start+rows > n {
+		start = n - rows
+	}
+	return start, start + rows
+}
+
+// deletePickerBody lists only your own messages, and switches to a confirmation
+// once one is picked. maxRows is how many terminal rows the modal pane has: the
+// list is windowed around the cursor so the message you are about to delete is
+// always the one you can see.
+func (m Model) deletePickerBody(maxRows int) string {
+	title := statusStyle.Render("Delete one of your messages")
+	if m.deleteConfirm {
+		i := m.deleteCandidates[m.deleteCursor]
+		p := m.posts[i]
+		body := title + "\n\n  " + deleteWarnStyle.Render("This cannot be undone. It disappears for everyone.") + "\n\n"
+		body += fmt.Sprintf("  %s  %s: %s\n", p.time, p.author, firstLineTUI(p.message))
+		if len(p.fileIDs) > 0 {
+			body += fmt.Sprintf("  %s\n", deleteWarnStyle.Render(
+				fmt.Sprintf("⚠ %d attachment(s) go with it", len(p.fileIDs))))
+		}
+		return body + "\n  press y to delete · any other key cancels"
+	}
+
+	var b strings.Builder
+	b.WriteString(title + "\n\n")
+	start, end := visibleWindow(len(m.deleteCandidates), m.deleteCursor, maxRows-2) // 2 = title + blank
+	if start > 0 {
+		b.WriteString(fmt.Sprintf("  … %d older\n", start))
+		start++ // the hint occupies a row
+	}
+	for i := start; i < end; i++ {
+		p := m.posts[m.deleteCandidates[i]]
+		line := fmt.Sprintf("%s  %s: %s", p.time, p.author, firstLineTUI(p.message))
+		if i == m.deleteCursor {
 			line = emojiSelStyle.Render(line)
 		}
 		b.WriteString("  " + line + "\n")
@@ -201,6 +287,12 @@ func (m Model) footer() string {
 	}
 	if m.scheduleViewMode {
 		return footerStyle.Width(m.width).Render("scheduled · j/k move · x cancel · esc close")
+	}
+	if m.deleteMode {
+		if m.deleteConfirm {
+			return footerStyle.Width(m.width).Render("delete · y confirms (irreversible) · any other key cancels")
+		}
+		return footerStyle.Width(m.width).Render("delete · j/k move · enter picks · esc close")
 	}
 	if m.copyMode {
 		return footerStyle.Width(m.width).Render("copy · j/k move · enter/y copy Markdown · esc close")

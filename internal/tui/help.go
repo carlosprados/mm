@@ -48,6 +48,7 @@ var (
 			{"↑/k at top", "load older history"},
 			{"+", "react to a message"},
 			{"y", "copy Markdown"},
+			{"d", "delete your message"},
 			{"i", "view images (chafa)"},
 		}},
 		{"Composer", []helpBinding{

@@ -101,6 +101,13 @@ type Model struct {
 	imageAttachments []imageAttachment
 	imagePickCursor  int
 
+	// delete flow: 'd' picks one of your own messages, then confirms. Candidates
+	// are indices into m.posts, so only deletable messages can be selected.
+	deleteMode       bool
+	deleteConfirm    bool
+	deleteCandidates []int
+	deleteCursor     int
+
 	// react flow: '+' picks a message (phase 0) then an emoji (phase 1).
 	reactMode        bool
 	reactPhase       int // 0 = pick message, 1 = pick emoji

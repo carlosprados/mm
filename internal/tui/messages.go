@@ -93,6 +93,11 @@ type sentMsg struct {
 	channelID string
 }
 
+// deletedMsg reports that a post was deleted, so the channel can be refreshed.
+type deletedMsg struct {
+	channelID string
+}
+
 // scheduledMsg reports a message was stored for later delivery.
 type scheduledMsg struct {
 	when string
