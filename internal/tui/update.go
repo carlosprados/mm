@@ -1341,7 +1341,7 @@ func (m Model) loadChannelsCmd() tea.Cmd {
 
 		items := make([]channelItem, 0, len(chans))
 		for _, ch := range chans {
-			typ := channelTypeLabel(ch.Type)
+			typ := client.ChannelTypeLabel(ch.Type)
 			var name, desc, username string
 			switch ch.Type {
 			case model.ChannelTypeDirect:
@@ -1557,17 +1557,4 @@ func dmLabel(bareUsername string, store *alias.Store) (title, desc string) {
 		}
 	}
 	return "@" + bareUsername, "dm"
-}
-
-func channelTypeLabel(t model.ChannelType) string {
-	switch t {
-	case model.ChannelTypePrivate:
-		return "private"
-	case model.ChannelTypeDirect:
-		return "dm"
-	case model.ChannelTypeGroup:
-		return "group"
-	default:
-		return "public"
-	}
 }

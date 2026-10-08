@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/carlosprados/mm/internal/client"
 )
 
 // Resources are the "browsable" face of the same data offered by tools.
@@ -45,7 +47,7 @@ func (s *Server) readChannelsResource(ctx context.Context, req *mcpsdk.ReadResou
 	}
 	out := listChannelsOut{Channels: make([]channelInfo, 0, len(channels))}
 	for _, ch := range channels {
-		out.Channels = append(out.Channels, channelInfo{Name: ch.Name, Type: channelTypeLabel(ch.Type)})
+		out.Channels = append(out.Channels, channelInfo{Name: ch.Name, Type: client.ChannelTypeLabel(ch.Type)})
 	}
 	return jsonResource(req.Params.URI, out)
 }

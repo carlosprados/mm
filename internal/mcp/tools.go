@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mattermost/mattermost/server/public/model"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/carlosprados/mm/internal/alias"
@@ -171,7 +170,7 @@ func (s *Server) registerTools() {
 			}
 			out := listChannelsOut{Channels: make([]channelInfo, 0, len(channels))}
 			for _, ch := range channels {
-				out.Channels = append(out.Channels, channelInfo{Name: ch.Name, Type: channelTypeLabel(ch.Type)})
+				out.Channels = append(out.Channels, channelInfo{Name: ch.Name, Type: client.ChannelTypeLabel(ch.Type)})
 			}
 			return nil, out, nil
 		},
@@ -455,17 +454,4 @@ func (s *Server) fetchMessagesFor(ctx context.Context, t client.Target, limit in
 		})
 	}
 	return out, nil
-}
-
-func channelTypeLabel(t model.ChannelType) string {
-	switch t {
-	case model.ChannelTypePrivate:
-		return "private"
-	case model.ChannelTypeDirect:
-		return "dm"
-	case model.ChannelTypeGroup:
-		return "group"
-	default:
-		return "public"
-	}
 }
