@@ -174,3 +174,17 @@ func (mm *MM) MarkChannelRead(ctx context.Context, channelID string) error {
 	}
 	return nil
 }
+
+// ChannelTypeLabel names a channel type for output: public, private, dm, group.
+func ChannelTypeLabel(t model.ChannelType) string {
+	switch t {
+	case model.ChannelTypePrivate:
+		return "private"
+	case model.ChannelTypeDirect:
+		return "dm"
+	case model.ChannelTypeGroup:
+		return "group"
+	default:
+		return "public"
+	}
+}

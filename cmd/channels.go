@@ -3,9 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/mattermost/mattermost/server/public/model"
-	"github.com/spf13/cobra"
 	"github.com/carlosprados/mm/internal/client"
+	"github.com/spf13/cobra"
 )
 
 var channelsCmd = &cobra.Command{
@@ -24,14 +23,7 @@ var channelsCmd = &cobra.Command{
 		}
 
 		for _, ch := range channels {
-			typeLabel := "public"
-			switch ch.Type {
-			case model.ChannelTypePrivate:
-				typeLabel = "private"
-			case model.ChannelTypeDirect:
-				typeLabel = "dm"
-			}
-			fmt.Printf("[%-7s] %s\n", typeLabel, ch.Name)
+			fmt.Printf("[%-7s] %s\n", client.ChannelTypeLabel(ch.Type), ch.Name)
 		}
 		return nil
 	},

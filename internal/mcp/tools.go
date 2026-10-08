@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mattermost/mattermost/server/public/model"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/carlosprados/mm/internal/alias"
@@ -171,7 +170,7 @@ func (s *Server) registerTools() {
 			}
 			out := listChannelsOut{Channels: make([]channelInfo, 0, len(channels))}
 			for _, ch := range channels {
-				out.Channels = append(out.Channels, channelInfo{Name: ch.Name, Type: channelTypeLabel(ch.Type)})
+				out.Channels = append(out.Channels, channelInfo{Name: ch.Name, Type: client.ChannelTypeLabel(ch.Type)})
 			}
 			return nil, out, nil
 		},
@@ -411,6 +410,8 @@ func (s *Server) registerTools() {
 			}, nil
 		},
 	)
+
+	s.registerUnreadTool()
 }
 
 // resolvePost turns a tool's post targeting arguments into a post ID: an
@@ -445,27 +446,18 @@ func (s *Server) fetchMessagesFor(ctx context.Context, t client.Target, limit in
 	}
 	out := make([]messageInfo, 0, len(msgs))
 	for _, m := range msgs {
-		out = append(out, messageInfo{
-			PostID:  m.ID,
-			Time:    time.UnixMilli(m.CreateAt).Format(time.RFC3339),
-			From:    m.Author,
-			Text:    m.Text,
-			Own:     m.Own,
-			FileIDs: m.FileIDs,
-		})
+		out = append(out, toMessageInfo(m))
 	}
 	return out, nil
 }
 
-func channelTypeLabel(t model.ChannelType) string {
-	switch t {
-	case model.ChannelTypePrivate:
-		return "private"
-	case model.ChannelTypeDirect:
-		return "dm"
-	case model.ChannelTypeGroup:
-		return "group"
-	default:
-		return "public"
+func toMessageInfo(m client.Message) messageInfo {
+	return messageInfo{
+		PostID:  m.ID,
+		Time:    time.UnixMilli(m.CreateAt).Format(time.RFC3339),
+		From:    m.Author,
+		Text:    m.Text,
+		Own:     m.Own,
+		FileIDs: m.FileIDs,
 	}
 }

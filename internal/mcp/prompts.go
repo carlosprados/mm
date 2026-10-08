@@ -41,6 +41,15 @@ func (s *Server) registerPrompts() {
 			{Name: "limit", Description: "Messages per channel (default 30)"},
 		},
 	}, s.dailyDigestPrompt)
+
+	s.srv.AddPrompt(&mcpsdk.Prompt{
+		Name:        "catch_up",
+		Description: "What did I miss: brief the user on everything unread across channels and DMs, leading with what needs their action. Does not mark anything as read.",
+		Arguments: []*mcpsdk.PromptArgument{
+			{Name: "limit", Description: "Max unread messages per channel (default 30)"},
+			{Name: "mentions_only", Description: "\"true\" to cover only channels and DMs that mention the user"},
+		},
+	}, s.catchUpPrompt)
 }
 
 func (s *Server) summarizeChannelPrompt(ctx context.Context, req *mcpsdk.GetPromptRequest) (*mcpsdk.GetPromptResult, error) {
