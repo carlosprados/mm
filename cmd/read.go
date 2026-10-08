@@ -68,14 +68,7 @@ type jsonMessage struct {
 func writeMessagesJSON(msgs []client.Message) error {
 	out := make([]jsonMessage, 0, len(msgs))
 	for _, m := range msgs {
-		out = append(out, jsonMessage{
-			ID:      m.ID,
-			Time:    time.UnixMilli(m.CreateAt).Format(time.RFC3339),
-			From:    m.Author,
-			Text:    m.Text,
-			Own:     m.Own,
-			FileIDs: m.FileIDs,
-		})
+		out = append(out, toJSONMessage(m))
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -83,6 +76,17 @@ func writeMessagesJSON(msgs []client.Message) error {
 		return fmt.Errorf("could not write JSON: %w", err)
 	}
 	return nil
+}
+
+func toJSONMessage(m client.Message) jsonMessage {
+	return jsonMessage{
+		ID:      m.ID,
+		Time:    time.UnixMilli(m.CreateAt).Format(time.RFC3339),
+		From:    m.Author,
+		Text:    m.Text,
+		Own:     m.Own,
+		FileIDs: m.FileIDs,
+	}
 }
 
 // formatMessageLine renders one message for humans, optionally with its post ID

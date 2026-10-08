@@ -49,6 +49,7 @@ Mapping table (keep in sync with the code):
 | `mm channels`          | `list_channels`   | `mm://team/channels`                         | —                                               |
 | `mm users`             | `list_users`      | `mm://team/users`                            | —                                               |
 | `mm read -c X\|-u U -n N` (`--ids`/`--mine`/`--json`) | `read_channel` (`user`, `mine_only`; returns `post_id`) | `mm://channel/{name}/messages?limit=N` | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
+| `mm unread` (`--mentions`/`--counts`/`--ids`/`--json`) | `list_unread` (`mentions_only`, `counts_only`) | `mm://team/unread` | `catch_up` |
 | `mm send …` (`-f` files) | `send_message` (`files`) | —                                     | —                                               |
 | `mm edit …` (`--post` id/permalink, `--nth`) | `edit_message` (`post_id`, `nth`) | —                          | —                                               |
 | `mm delete\|rm …` (confirms, `-y` skips) | `delete_message` (requires `confirm: true`) | —                | —                                               |
@@ -77,6 +78,7 @@ mm/
 │   ├── root.go        — Cobra root, Execute()
 │   ├── channels.go    — `mm channels`
 │   ├── read.go        — `mm read -c <channel>|-u <user> [-n N] [--ids|--mine|--json]`
+│   ├── unread.go      — `mm unread [-n N] [--mentions|--counts|--ids|--json]` — what did I miss
 │   ├── send.go        — `mm send [-c <channel>|-u <username>] -m <message>`
 │   ├── edit.go        — `mm edit [-c <channel>|-u <username>] [--post <id|permalink>|--nth N] -m <message>`
 │   ├── delete.go      — `mm delete|rm [-c X|-u U] [--post <id|permalink>|--nth N] [-y]`
@@ -97,7 +99,8 @@ mm/
     │   ├── mattermost.go  — MM struct, New(), env+config precedence
     │   ├── files.go       — UploadFiles (attachments), MaxFilesPerPost
     │   ├── postref.go     — ParsePostRef: post ID or permalink → post ID
-    │   ├── read.go        — Message, ReadMessages, OwnPostIDs/NthOwnPostID (shared reader)
+    │   ├── read.go        — Message, ReadMessages (Since/SkipSystem), OwnPostIDs/NthOwnPostID (shared reader)
+    │   ├── unread.go      — Unread (read-only: never marks read), ChannelTypeLabel
     │   └── messaging.go   — Target, ResolveChannelID, Send(Files), EditPost (shared by CLI/TUI/MCP)
     ├── config/
     │   └── config.go      — XDG-aware credential persistence (0600)
@@ -106,9 +109,10 @@ mm/
     │   └── time.go        — ParseTime (shared by CLI/TUI/MCP)
     ├── mcp/
     │   ├── server.go      — wires up tools/resources/prompts
-    │   ├── tools.go       — 10 tools
-    │   ├── resources.go   — 3 resources (1 fixed + 2 templated)
-    │   └── prompts.go     — 3 prompts
+    │   ├── tools.go       — 10 tools (+ list_unread in unread.go)
+    │   ├── resources.go   — 4 resources (3 fixed + 1 templated)
+    │   ├── prompts.go     — 3 prompts (+ catch_up in unread.go)
+    │   └── unread.go      — list_unread tool, mm://team/unread, catch_up prompt
     └── tui/               — interactive terminal UI (Bubble Tea)
         ├── model.go       — root model, focus, channelItem, edit/alias/emoji state
         ├── update.go      — Update loop + async tea.Cmds (polling), layout

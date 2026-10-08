@@ -25,11 +25,16 @@ type Message struct {
 	Own      bool // authored by the authenticated user
 }
 
-// ReadOptions tunes a read. Limit bounds how many posts are *fetched*; OnlyMine
-// filters afterwards, so a mine-only read can return fewer than Limit messages.
+// ReadOptions tunes a read. Limit bounds how many posts are *fetched*; the
+// other fields filter afterwards, so a filtered read can return fewer than
+// Limit messages.
 type ReadOptions struct {
 	Limit    int
 	OnlyMine bool
+	// Since keeps only posts created after this instant (ms since epoch).
+	Since int64
+	// SkipSystem drops system posts (joins, header changes, …).
+	SkipSystem bool
 }
 
 // ReadMessages returns recent posts from a channel or DM, oldest first. Shared
@@ -69,6 +74,9 @@ func (mm *MM) ReadMessagesFromChannelID(ctx context.Context, channelID string, o
 		p := posts.Posts[posts.Order[i]]
 		own := p.UserId == mm.UserID
 		if opts.OnlyMine && !own {
+			continue
+		}
+		if p.CreateAt <= opts.Since || (opts.SkipSystem && p.IsSystemMessage()) {
 			continue
 		}
 		out = append(out, Message{

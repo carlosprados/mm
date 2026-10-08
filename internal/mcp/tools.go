@@ -410,6 +410,8 @@ func (s *Server) registerTools() {
 			}, nil
 		},
 	)
+
+	s.registerUnreadTool()
 }
 
 // resolvePost turns a tool's post targeting arguments into a post ID: an
@@ -444,14 +446,18 @@ func (s *Server) fetchMessagesFor(ctx context.Context, t client.Target, limit in
 	}
 	out := make([]messageInfo, 0, len(msgs))
 	for _, m := range msgs {
-		out = append(out, messageInfo{
-			PostID:  m.ID,
-			Time:    time.UnixMilli(m.CreateAt).Format(time.RFC3339),
-			From:    m.Author,
-			Text:    m.Text,
-			Own:     m.Own,
-			FileIDs: m.FileIDs,
-		})
+		out = append(out, toMessageInfo(m))
 	}
 	return out, nil
+}
+
+func toMessageInfo(m client.Message) messageInfo {
+	return messageInfo{
+		PostID:  m.ID,
+		Time:    time.UnixMilli(m.CreateAt).Format(time.RFC3339),
+		From:    m.Author,
+		Text:    m.Text,
+		Own:     m.Own,
+		FileIDs: m.FileIDs,
+	}
 }

@@ -32,6 +32,13 @@ func (s *Server) registerResources() {
 		MIMEType:    "application/json",
 	}, s.readUsersResource)
 
+	s.srv.AddResource(&mcpsdk.Resource{
+		URI:         "mm://team/unread",
+		Name:        "Unread",
+		Description: "Every channel and DM with unread activity and its unread messages (20 per channel), as JSON. Read-only: nothing is marked as read.",
+		MIMEType:    "application/json",
+	}, s.readUnreadResource)
+
 	s.srv.AddResourceTemplate(&mcpsdk.ResourceTemplate{
 		URITemplate: "mm://channel/{name}/messages{?limit}",
 		Name:        "Channel messages",
