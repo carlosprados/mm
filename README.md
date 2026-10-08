@@ -26,6 +26,7 @@ Built against Mattermost Server **11.6.x** using the official
 - List joined channels (public, private, DMs).
 - List team members with their `@username` handle.
 - Read the last *N* messages from a channel **or a DM**, with post IDs (`--ids` / `--json`) so they can be edited.
+- **What did I miss**: everything unread across channels and DMs, mentions first (`mm unread`, MCP `list_unread` / `catch_up`) — without marking anything as read.
 - Send a message to a channel **or** a direct message to a user.
 - Attach files to a message: `mm send -f`, the TUI (`ctrl+o`) or MCP `send_message.files`.
 - Resolves user IDs to `@usernames` in batch — no opaque UUIDs.
@@ -34,7 +35,7 @@ Built against Mattermost Server **11.6.x** using the official
 - Schedule messages for later delivery (CLI, TUI `ctrl+t`, MCP); delivered by the TUI while it runs.
 - Configurable aliases: DM a colleague by a short handle (`alex` → `alexandra.hernandez`).
 - Interactive TUI (`mm tui`) built on Bubble Tea: real-time over WebSocket, Markdown rendering, emoji picker, inline images.
-- MCP server (`mm mcp`) with **10 tools**, **3 resources** and **3 prompts**.
+- MCP server (`mm mcp`) with **11 tools**, **4 resources** and **4 prompts**.
 
 ---
 
@@ -211,6 +212,35 @@ mm read -c dev-backend --json | jq -r '.[] | select(.own) | "\(.id) \(.text)"'
 `--json` emits one array of objects with `id`, `time` (RFC3339), `from`, `text`,
 `own` and `file_ids` (when the message has attachments). `--mine` filters the
 fetched window, so combine it with a larger `-n` if you're looking further back.
+
+### `mm unread` — what did I miss
+
+Every channel and DM with unread activity, those that mention you first, then by
+most recent activity, each with the messages you have not seen yet. **Read-only:**
+nothing is marked as read, so the web and mobile clients keep their unread badges.
+
+| Flag           | Default | Description                                       |
+|----------------|---------|---------------------------------------------------|
+| `-n, --limit`  | `20`    | Max unread messages shown per channel.            |
+| `--mentions`   | off     | Only channels and DMs where you were mentioned.   |
+| `--counts`     | off     | One line per channel, without the messages.       |
+| `--ids`        | off     | Show each message's post ID.                      |
+| `--json`       | off     | Machine-readable output (always includes IDs).    |
+
+```bash
+mm unread --counts
+# #dev-backend — 12 unread, 1 mention(s)
+# @alexandra.hernandez — 2 unread, 2 mention(s)
+# #town-square — 5 unread
+
+mm unread --mentions -n 5
+```
+
+The count is the server's, so a channel can say `12 unread` while showing only
+the last `-n`; the output says how many older ones it left out. System posts
+(joins, header changes) are not shown. `--json` emits an array of objects with
+`channel` (the bare slug for `mm read -c`, or `@username` for `-u`), `type`,
+`mentions`, `unread`, `truncated` and `messages` (same fields as `mm read --json`).
 
 ### `mm send` — send a message (with optional attachments)
 
@@ -486,6 +516,7 @@ npx @modelcontextprotocol/inspector mm mcp
 | `mm channels`    | `list_channels`| `mm://team/channels`                        | —                                                         |
 | `mm users`       | `list_users`   | `mm://team/users`                           | —                                                         |
 | `mm read` (`-u`, `--ids`, `--mine`, `--json`) | `read_channel` (`user`, `mine_only`) | `mm://channel/{name}/messages?limit={n}` | feeds `summarize_channel`, `draft_reply`, `daily_digest`  |
+| `mm unread` (`--mentions`, `--counts`) | `list_unread` (`mentions_only`, `counts_only`) | `mm://team/unread` | `catch_up`                                 |
 | `mm send`        | `send_message` | —                                           | —                                                         |
 | `mm edit`        | `edit_message` | —                                           | —                                                         |
 | `mm delete` / `rm` | `delete_message` | —                                        | —                                                         |
@@ -515,6 +546,7 @@ Available prompts:
 - `summarize_channel(channel, limit?)` — decisions, blockers, action items.
 - `draft_reply(channel, intent, limit?)` — draft a reply matching tone.
 - `daily_digest(channels, limit?)` — multi-channel digest.
+- `catch_up(limit?, mentions_only?)` — what did I miss: everything unread, leading with what needs your action. Like `list_unread`, it marks nothing as read.
 
 ---
 
@@ -557,6 +589,7 @@ mm/
 │   ├── whoami.go
 │   ├── channels.go
 │   ├── read.go
+│   ├── unread.go
 │   ├── send.go
 │   ├── edit.go
 │   ├── schedule.go
@@ -570,7 +603,8 @@ mm/
     │   └── alias.go
     ├── client/           — Mattermost API wrapper
     │   ├── mattermost.go
-    │   └── messaging.go  — Target, Send, EditPost (shared by CLI/TUI/MCP)
+    │   ├── messaging.go  — Target, Send, EditPost (shared by CLI/TUI/MCP)
+    │   └── unread.go     — Unread: the "what did I miss" reader (shared by CLI/MCP)
     ├── config/           — Persisted session (XDG, 0600)
     │   └── config.go
     ├── schedule/         — client-side scheduled messages (XDG, 0600)
@@ -580,7 +614,8 @@ mm/
     │   ├── server.go
     │   ├── tools.go
     │   ├── resources.go
-    │   └── prompts.go
+    │   ├── prompts.go
+    │   └── unread.go     — list_unread, mm://team/unread, catch_up
     └── tui/              — interactive terminal UI (Bubble Tea)
         ├── model.go
         ├── update.go
