@@ -95,11 +95,12 @@ type Model struct {
 	copyMode     bool
 	copyCursor   int
 
-	// image picker: 'i' lists image attachments in the channel; selecting one
-	// downloads it and renders it inline via chafa (suspending the TUI).
-	imagePickMode    bool
-	imageAttachments []imageAttachment
-	imagePickCursor  int
+	// attachment picker: 'i' lists the attachments in the channel; enter saves
+	// one to the download directory, v renders an image inline via chafa
+	// (suspending the TUI).
+	filePickMode    bool
+	fileAttachments []fileAttachment
+	filePickCursor  int
 
 	// delete flow: 'd' picks one of your own messages, then confirms. Candidates
 	// are indices into m.posts, so only deletable messages can be selected.
@@ -151,14 +152,14 @@ type postLine struct {
 	author    string
 	message   string
 	fileIDs   []string
+	files     []client.Attachment
 	reactions string // pre-formatted "👍 2  🎉 1" (empty if none)
 }
 
-// imageAttachment is an image file attached to a message in the active channel.
-type imageAttachment struct {
-	label  string // "HH:MM @user — name.png"
-	fileID string
-	name   string
+// fileAttachment is a file attached to a message in the active channel.
+type fileAttachment struct {
+	label string // "HH:MM @user — name.png (84.7 KB)"
+	file  client.Attachment
 }
 
 // channelItem adapts a Mattermost channel to bubbles/list.Item.

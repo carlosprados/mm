@@ -34,8 +34,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleHelpKey(msg)
 		case m.reactMode:
 			return m.handleReactKey(msg)
-		case m.imagePickMode:
-			return m.handleImageKey(msg)
+		case m.filePickMode:
+			return m.handleFileKey(msg)
 		case m.copyMode:
 			return m.handleCopyKey(msg)
 		case m.scheduleViewMode:
@@ -186,14 +186,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "attachments: " + msg.err.Error()
 			return m, nil
 		}
-		if len(msg.images) == 0 {
-			m.status = "no image attachments in this channel"
+		if len(msg.files) == 0 {
+			m.status = "no attachments in this channel"
 			return m, nil
 		}
-		m.imageAttachments = msg.images
-		m.imagePickCursor = len(msg.images) - 1 // most recent
-		m.imagePickMode = true
-		m.status = "view an image"
+		m.fileAttachments = msg.files
+		m.filePickCursor = len(msg.files) - 1 // most recent
+		m.filePickMode = true
+		m.status = "attachments"
+		return m, nil
+
+	case fileSavedMsg:
+		if msg.err != nil {
+			m.status = "download: " + msg.err.Error()
+			return m, nil
+		}
+		m.status = "saved " + msg.path
 		return m, nil
 
 	case imageReadyMsg:
@@ -402,7 +410,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "react: pick a message"
 		return m, nil
 
-	// View image attachments from the messages pane.
+	// Download or view attachments from the messages pane.
 	case msg.String() == "i" && m.focus == focusMessages:
 		if !m.anyAttachments() {
 			m.status = "no attachments in this channel"
@@ -932,33 +940,43 @@ func (m Model) reactCmd(postID, emojiName string) tea.Cmd {
 	}
 }
 
-// handleImageKey drives the image-attachment picker; enter renders the selected
-// image inline (via chafa, suspending the TUI).
-func (m Model) handleImageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// handleFileKey drives the attachment picker: enter saves the selected file to
+// the download directory, v renders an image inline (via chafa, suspending the
+// TUI).
+func (m Model) handleFileKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "esc", "q":
-		m.imagePickMode = false
+		m.filePickMode = false
 		return m, nil
 	case "down", "j":
-		if m.imagePickCursor < len(m.imageAttachments)-1 {
-			m.imagePickCursor++
+		if m.filePickCursor < len(m.fileAttachments)-1 {
+			m.filePickCursor++
 		}
 		return m, nil
 	case "up", "k":
-		if m.imagePickCursor > 0 {
-			m.imagePickCursor--
+		if m.filePickCursor > 0 {
+			m.filePickCursor--
 		}
 		return m, nil
-	case "enter":
-		if m.imagePickCursor < 0 || m.imagePickCursor >= len(m.imageAttachments) {
+	case "enter", "v":
+		if m.filePickCursor < 0 || m.filePickCursor >= len(m.fileAttachments) {
 			return m, nil
 		}
-		img := m.imageAttachments[m.imagePickCursor]
-		m.imagePickMode = false
-		m.status = "downloading " + img.name + "…"
-		return m, m.downloadImageCmd(img)
+		f := m.fileAttachments[m.filePickCursor].file
+		if msg.String() == "v" {
+			if !f.IsImage() {
+				m.status = f.Name + " is not an image: enter downloads it"
+				return m, nil
+			}
+			m.filePickMode = false
+			m.status = "downloading " + f.Name + "…"
+			return m, m.downloadImageCmd(f)
+		}
+		m.filePickMode = false
+		m.status = "saving " + f.Name + "…"
+		return m, m.saveFileCmd(f)
 	}
 	return m, nil
 }
@@ -972,39 +990,49 @@ func (m Model) anyAttachments() bool {
 	return false
 }
 
-// loadAttachmentsCmd fetches file infos for posts with files and keeps images.
+// loadAttachmentsCmd lists the attachments of the loaded posts. Their names
+// come with the posts' metadata, so this only goes to the server for a post
+// that arrived without it.
 func (m Model) loadAttachmentsCmd() tea.Cmd {
 	return func() tea.Msg {
-		var images []imageAttachment
+		var out []fileAttachment
 		for _, p := range m.posts {
-			if len(p.fileIDs) == 0 {
-				continue
-			}
-			infos, _, err := m.mm.Client.GetFileInfosForPost(m.ctx, p.postID, "")
-			if err != nil {
-				return attachmentsLoadedMsg{err: err}
-			}
-			for _, fi := range infos {
-				if strings.HasPrefix(fi.MimeType, "image/") {
-					images = append(images, imageAttachment{
-						label:  fmt.Sprintf("%s %s — %s", p.time, p.author, fi.Name),
-						fileID: fi.Id,
-						name:   fi.Name,
-					})
+			files := p.files
+			if len(p.fileIDs) > 0 && (len(files) == 0 || files[0].Name == "") {
+				post, _, err := m.mm.Client.GetPost(m.ctx, p.postID, "")
+				if err != nil {
+					return attachmentsLoadedMsg{err: err}
+				}
+				if files, err = m.mm.PostAttachments(m.ctx, post); err != nil {
+					return attachmentsLoadedMsg{err: err}
 				}
 			}
+			for _, f := range files {
+				out = append(out, fileAttachment{
+					label: fmt.Sprintf("%s %s — %s (%s)", p.time, p.author, f.Name, client.FormatSize(f.Size)),
+					file:  f,
+				})
+			}
 		}
-		return attachmentsLoadedMsg{images: images}
+		return attachmentsLoadedMsg{files: out}
 	}
 }
 
-func (m Model) downloadImageCmd(img imageAttachment) tea.Cmd {
+// saveFileCmd downloads an attachment into the desktop download directory.
+func (m Model) saveFileCmd(f client.Attachment) tea.Cmd {
 	return func() tea.Msg {
-		data, _, err := m.mm.Client.GetFile(m.ctx, img.fileID)
+		path, err := m.mm.DownloadFile(m.ctx, f, client.DefaultDownloadDir())
+		return fileSavedMsg{path: path, err: err}
+	}
+}
+
+func (m Model) downloadImageCmd(img client.Attachment) tea.Cmd {
+	return func() tea.Msg {
+		data, _, err := m.mm.Client.GetFile(m.ctx, img.ID)
 		if err != nil {
 			return imageReadyMsg{err: err}
 		}
-		ext := filepath.Ext(img.name)
+		ext := filepath.Ext(img.Name)
 		if ext == "" {
 			ext = ".img"
 		}
@@ -1399,6 +1427,7 @@ func (m Model) buildPostLines(posts *model.PostList) ([]postLine, error) {
 			author:    usernames[p.UserId],
 			message:   p.Message,
 			fileIDs:   p.FileIds,
+			files:     client.AttachmentsOf(p),
 			reactions: formatReactions(p),
 		})
 	}

@@ -49,7 +49,7 @@ var (
 			{"+", "react to a message"},
 			{"y", "copy Markdown"},
 			{"d", "delete your message"},
-			{"i", "view images (chafa)"},
+			{"i", "attachments: download / view"},
 		}},
 		{"Composer", []helpBinding{
 			{"ctrl+s", "send"},

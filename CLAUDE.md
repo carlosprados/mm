@@ -48,11 +48,12 @@ Mapping table (keep in sync with the code):
 |------------------------|-------------------|----------------------------------------------|-------------------------------------------------|
 | `mm channels`          | `list_channels`   | `mm://team/channels`                         | —                                               |
 | `mm users`             | `list_users`      | `mm://team/users`                            | —                                               |
-| `mm read -c X\|-u U -n N` (`--ids`/`--mine`/`--json`) | `read_channel` (`user`, `mine_only`; returns `post_id`) | `mm://channel/{name}/messages?limit=N` | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
+| `mm read -c X\|-u U -n N` (`--ids`/`--mine`/`--json`) | `read_channel` (`user`, `mine_only`; returns `post_id` and `files`) | `mm://channel/{name}/messages?limit=N` | feeds `summarize_channel`, `draft_reply`, `daily_digest` |
 | `mm unread` (`--mentions`/`--counts`/`--ids`/`--json`) | `list_unread` (`mentions_only`, `counts_only`) | `mm://team/unread` | `catch_up` |
 | `mm send …` (`-f` files) | `send_message` (`files`) | —                                     | —                                               |
 | `mm edit …` (`--post` id/permalink, `--nth`) | `edit_message` (`post_id`, `nth`) | —                          | —                                               |
 | `mm delete\|rm …` (confirms, `-y` skips) | `delete_message` (requires `confirm: true`) | —                | —                                               |
+| `mm download\|dl <post\|permalink\|file>… \| -c X\|-u U` (`-o dir`) | `download_file` (`file_id`/`post_id`/`channel`/`user`, `dir`) | — | —                          |
 | `mm schedule add`      | `schedule_message`| —                                            | —                                               |
 | `mm schedule list/rm`  | `manage_scheduled`| —                                            | —                                               |
 | `mm alias add/rm/list` | `manage_alias`    | —                                            | —                                               |
@@ -83,6 +84,7 @@ mm/
 │   ├── edit.go        — `mm edit [-c <channel>|-u <username>] [--post <id|permalink>|--nth N] -m <message>`
 │   ├── delete.go      — `mm delete|rm [-c X|-u U] [--post <id|permalink>|--nth N] [-y]`
 │   ├── postref.go     — resolvePost: shared --post/--nth targeting for edit & delete
+│   ├── download.go    — `mm download|dl [refs…] [-c X|-u U] [-o dir]` — save attachments
 │   ├── schedule.go    — `mm schedule add|list|rm` — server-side scheduled posts
 │   ├── users.go       — `mm users`
 │   ├── alias.go       — `mm alias add|rm|list` — short handles → usernames
@@ -98,6 +100,7 @@ mm/
     ├── client/
     │   ├── mattermost.go  — MM struct, New(), env+config precedence
     │   ├── files.go       — UploadFiles (attachments), MaxFilesPerPost
+    │   ├── download.go    — Attachment (from post metadata), Resolve/LastAttachments, DownloadFile (no-overwrite, .part), DefaultDownloadDir (XDG)
     │   ├── postref.go     — ParsePostRef: post ID or permalink → post ID
     │   ├── read.go        — Message, ReadMessages (Since/SkipSystem), OwnPostIDs/NthOwnPostID (shared reader)
     │   ├── unread.go      — Unread (read-only: never marks read), ChannelTypeLabel
@@ -109,10 +112,11 @@ mm/
     │   └── time.go        — ParseTime (shared by CLI/TUI/MCP)
     ├── mcp/
     │   ├── server.go      — wires up tools/resources/prompts
-    │   ├── tools.go       — 10 tools (+ list_unread in unread.go)
+    │   ├── tools.go       — 10 tools (+ list_unread, download_file in their own files)
     │   ├── resources.go   — 4 resources (3 fixed + 1 templated)
     │   ├── prompts.go     — 3 prompts (+ catch_up in unread.go)
-    │   └── unread.go      — list_unread tool, mm://team/unread, catch_up prompt
+    │   ├── unread.go      — list_unread tool, mm://team/unread, catch_up prompt
+    │   └── download.go    — download_file tool
     └── tui/               — interactive terminal UI (Bubble Tea)
         ├── model.go       — root model, focus, channelItem, edit/alias/emoji state
         ├── update.go      — Update loop + async tea.Cmds (polling), layout
@@ -189,12 +193,14 @@ TUI extras that stay leveled with the other surfaces:
   calls `client.React` (`SaveReaction`). Existing reactions are rendered under
   each message from `post.Metadata.Reactions` (no extra calls), glyphs resolved
   via `emojiGlyph`.
-- **Inline images**: `i` opens an image-attachment picker (file infos via
-  `GetFileInfosForPost`, filtered by `image/*` MimeType). Selecting one downloads
-  it (`GetFile`) to a temp file and renders it with `chafa` via
-  `tea.ExecProcess` — the TUI is suspended so chafa's sixel/kitty/iterm output
-  isn't clobbered by the renderer; the temp file is removed on return. External
-  binary dependency: `chafa`.
+- **Download / view attachments**: `i` opens a picker of every attachment in the loaded posts
+  (`postLine.files`, from `client.AttachmentsOf` = post metadata, no extra
+  calls), windowed with `visibleWindow` since it opens on the newest, at the
+  bottom. `enter` saves via `client.DownloadFile` to `DefaultDownloadDir` (same
+  as `mm download` / `download_file`). `v` on an `image/*` downloads to a temp
+  file and renders it with `chafa` via `tea.ExecProcess` — the TUI is suspended
+  so chafa's sixel/kitty/iterm output isn't clobbered by the renderer; the temp
+  file is removed on return. External binary dependency: `chafa`.
 - **Delete**: `d` on the message pane opens a picker built from
   `ownPostIndices()` — **only your own messages are selectable**, so a stray key
   can't aim at someone else's — then `enter` shows a confirmation and only `y`

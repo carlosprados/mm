@@ -22,7 +22,8 @@ type Message struct {
 	Author   string // "@username", or the raw user ID if it can't be resolved
 	Text     string
 	FileIDs  []string
-	Own      bool // authored by the authenticated user
+	Files    []Attachment // same files as FileIDs, with name, size and type
+	Own      bool         // authored by the authenticated user
 }
 
 // ReadOptions tunes a read. Limit bounds how many posts are *fetched*; the
@@ -86,6 +87,7 @@ func (mm *MM) ReadMessagesFromChannelID(ctx context.Context, channelID string, o
 			Author:   usernames[p.UserId],
 			Text:     p.Message,
 			FileIDs:  p.FileIds,
+			Files:    AttachmentsOf(p),
 			Own:      own,
 		})
 	}
@@ -110,6 +112,7 @@ func (mm *MM) GetMessage(ctx context.Context, postID string) (Message, error) {
 		Author:   authors[p.UserId],
 		Text:     p.Message,
 		FileIDs:  p.FileIds,
+		Files:    AttachmentsOf(p),
 		Own:      p.UserId == mm.UserID,
 	}, nil
 }

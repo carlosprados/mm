@@ -49,12 +49,21 @@ type readChannelIn struct {
 // messageInfo carries post_id so a caller can feed it back to edit_message;
 // without it only the caller's own last message is reachable.
 type messageInfo struct {
-	PostID  string   `json:"post_id"`
-	Time    string   `json:"time"`
-	From    string   `json:"from"`
-	Text    string   `json:"text"`
-	Own     bool     `json:"own"`
-	FileIDs []string `json:"file_ids,omitempty"`
+	PostID  string     `json:"post_id"`
+	Time    string     `json:"time"`
+	From    string     `json:"from"`
+	Text    string     `json:"text"`
+	Own     bool       `json:"own"`
+	FileIDs []string   `json:"file_ids,omitempty"`
+	Files   []fileInfo `json:"files,omitempty"`
+}
+
+// fileInfo describes an attachment; file_id is what download_file accepts.
+type fileInfo struct {
+	FileID string `json:"file_id"`
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	Mime   string `json:"mime,omitempty"`
 }
 
 type readChannelOut struct {
@@ -203,7 +212,7 @@ func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.srv,
 		&mcpsdk.Tool{
 			Name:        "read_channel",
-			Description: "Read the most recent messages from a channel or a DM, oldest to newest, with usernames resolved. Each message includes its post_id, which edit_message accepts. Provide either channel or user, never both.",
+			Description: "Read the most recent messages from a channel or a DM, oldest to newest, with usernames resolved. Each message includes its post_id, which edit_message accepts, and its attachments (files, with the file_id download_file accepts). Provide either channel or user, never both.",
 		},
 		func(ctx context.Context, _ *mcpsdk.CallToolRequest, in readChannelIn) (*mcpsdk.CallToolResult, readChannelOut, error) {
 			target := client.Target{Channel: in.Channel, User: in.User}
@@ -412,6 +421,7 @@ func (s *Server) registerTools() {
 	)
 
 	s.registerUnreadTool()
+	s.registerDownloadTool()
 }
 
 // resolvePost turns a tool's post targeting arguments into a post ID: an
@@ -459,5 +469,17 @@ func toMessageInfo(m client.Message) messageInfo {
 		Text:    m.Text,
 		Own:     m.Own,
 		FileIDs: m.FileIDs,
+		Files:   toFileInfos(m.Files),
 	}
+}
+
+func toFileInfos(files []client.Attachment) []fileInfo {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]fileInfo, 0, len(files))
+	for _, f := range files {
+		out = append(out, fileInfo{FileID: f.ID, Name: f.Name, Size: f.Size, Mime: f.MimeType})
+	}
+	return out
 }

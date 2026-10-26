@@ -25,7 +25,7 @@ func (m Model) View() string {
 	var body string
 
 	// Modal pickers take over the right column.
-	if m.helpMode || m.scheduleViewMode || m.copyMode || m.imagePickMode || m.reactMode || m.deleteMode {
+	if m.helpMode || m.scheduleViewMode || m.copyMode || m.filePickMode || m.reactMode || m.deleteMode {
 		var bodyText string
 		switch {
 		case m.helpMode:
@@ -34,8 +34,8 @@ func (m Model) View() string {
 			bodyText = m.deletePickerBody(d.sidebarInnerH)
 		case m.copyMode:
 			bodyText = m.copyPickerBody()
-		case m.imagePickMode:
-			bodyText = m.imagePickerBody()
+		case m.filePickMode:
+			bodyText = m.filePickerBody(d.sidebarInnerH)
 		case m.reactMode:
 			bodyText = m.reactBody()
 		default:
@@ -123,16 +123,23 @@ func (m Model) reactBody() string {
 	return b.String()
 }
 
-func (m Model) imagePickerBody() string {
-	title := statusStyle.Render("View an image (chafa)")
-	if len(m.imageAttachments) == 0 {
-		return title + "\n\n  No image attachments."
+// filePickerBody lists the channel's attachments, windowed around the cursor
+// like the delete picker: it opens on the most recent one, at the bottom.
+func (m Model) filePickerBody(maxRows int) string {
+	title := statusStyle.Render("Attachments")
+	if len(m.fileAttachments) == 0 {
+		return title + "\n\n  No attachments."
 	}
 	var b strings.Builder
 	b.WriteString(title + "\n\n")
-	for i, img := range m.imageAttachments {
-		line := img.label
-		if i == m.imagePickCursor {
+	start, end := visibleWindow(len(m.fileAttachments), m.filePickCursor, maxRows-2) // 2 = title + blank
+	if start > 0 {
+		b.WriteString(fmt.Sprintf("  … %d older\n", start))
+		start++ // the hint occupies a row
+	}
+	for i := start; i < end; i++ {
+		line := m.fileAttachments[i].label
+		if i == m.filePickCursor {
 			line = emojiSelStyle.Render(line)
 		}
 		b.WriteString("  " + line + "\n")
@@ -297,8 +304,8 @@ func (m Model) footer() string {
 	if m.copyMode {
 		return footerStyle.Width(m.width).Render("copy · j/k move · enter/y copy Markdown · esc close")
 	}
-	if m.imagePickMode {
-		return footerStyle.Width(m.width).Render("images · j/k move · enter view · esc close")
+	if m.filePickMode {
+		return footerStyle.Width(m.width).Render("attachments · j/k move · enter download · v view image · esc close")
 	}
 	if m.reactMode {
 		if m.reactPhase == 0 {
@@ -313,7 +320,7 @@ func (m Model) footer() string {
 			statusStyle.Render(attachSummary(m.pendingFiles)) +
 				"  —  ctrl+s sends · ctrl+o adds more · " + m.status)
 	}
-	help := "enter open · ctrl+s send · ctrl+o attach · + react · y copy · i images · ? help · q quit"
+	help := "enter open · ctrl+s send · ctrl+o attach · + react · y copy · i files · ? help · q quit"
 	status := statusStyle.Render(m.status)
 	return footerStyle.Width(m.width).Render(status + "  —  " + help)
 }

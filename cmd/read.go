@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -57,12 +58,21 @@ var readCmd = &cobra.Command{
 
 // jsonMessage is the stable shape of `mm read --json` output.
 type jsonMessage struct {
-	ID      string   `json:"id"`
-	Time    string   `json:"time"` // RFC3339, local zone
-	From    string   `json:"from"`
-	Text    string   `json:"text"`
-	Own     bool     `json:"own"`
-	FileIDs []string `json:"file_ids,omitempty"`
+	ID      string     `json:"id"`
+	Time    string     `json:"time"` // RFC3339, local zone
+	From    string     `json:"from"`
+	Text    string     `json:"text"`
+	Own     bool       `json:"own"`
+	FileIDs []string   `json:"file_ids,omitempty"`
+	Files   []jsonFile `json:"files,omitempty"`
+}
+
+// jsonFile describes an attachment; its id is what 'mm download' accepts.
+type jsonFile struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	Mime string `json:"mime,omitempty"`
 }
 
 func writeMessagesJSON(msgs []client.Message) error {
@@ -86,17 +96,49 @@ func toJSONMessage(m client.Message) jsonMessage {
 		Text:    m.Text,
 		Own:     m.Own,
 		FileIDs: m.FileIDs,
+		Files:   toJSONFiles(m.Files),
 	}
+}
+
+func toJSONFiles(files []client.Attachment) []jsonFile {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]jsonFile, 0, len(files))
+	for _, f := range files {
+		out = append(out, jsonFile{ID: f.ID, Name: f.Name, Size: f.Size, Mime: f.MimeType})
+	}
+	return out
 }
 
 // formatMessageLine renders one message for humans, optionally with its post ID
 // so it can be fed straight to `mm edit --post`.
 func formatMessageLine(m client.Message, withID bool) string {
 	ts := time.UnixMilli(m.CreateAt).Format("15:04")
+	line := fmt.Sprintf("[%s] %s: %s", ts, m.Author, m.Text)
 	if withID {
-		return fmt.Sprintf("[%s] %s %s: %s", ts, m.ID, m.Author, m.Text)
+		line = fmt.Sprintf("[%s] %s %s: %s", ts, m.ID, m.Author, m.Text)
 	}
-	return fmt.Sprintf("[%s] %s: %s", ts, m.Author, m.Text)
+	if files := formatAttachments(m.Files); files != "" {
+		line += " " + files
+	}
+	return line
+}
+
+// formatAttachments renders "📎 report.pdf (1.2 MB), shot.png (84.7 KB)".
+func formatAttachments(files []client.Attachment) string {
+	if len(files) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(files))
+	for _, f := range files {
+		if f.Name == "" {
+			parts = append(parts, f.ID)
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", f.Name, client.FormatSize(f.Size)))
+	}
+	return "📎 " + strings.Join(parts, ", ")
 }
 
 func init() {

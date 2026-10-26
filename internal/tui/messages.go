@@ -67,10 +67,16 @@ type reactedMsg struct {
 	err       error
 }
 
-// attachmentsLoadedMsg carries the channel's image attachments for the picker.
+// attachmentsLoadedMsg carries the channel's attachments for the picker.
 type attachmentsLoadedMsg struct {
-	images []imageAttachment
-	err    error
+	files []fileAttachment
+	err   error
+}
+
+// fileSavedMsg reports where an attachment was saved by the picker.
+type fileSavedMsg struct {
+	path string
+	err  error
 }
 
 // imageReadyMsg signals a downloaded image is on disk and ready to render.
