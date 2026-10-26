@@ -132,8 +132,8 @@ func TestViewFitsTerminalWithModalContent(t *testing.T) {
 		"react": func(m *Model) { m.reactMode = true },
 		"help":  func(m *Model) { m.helpMode = true },
 		"images": func(m *Model) {
-			m.imagePickMode = true
-			m.imageAttachments = []imageAttachment{{label: "09:00 @me — a-very-long-screenshot-name.png"}}
+			m.filePickMode = true
+			m.fileAttachments = []fileAttachment{{label: "09:00 @me — a-very-long-screenshot-name.png"}}
 		},
 		"delete": func(m *Model) { m.deleteMode = true; m.deleteCandidates = m.ownPostIndices() },
 	}

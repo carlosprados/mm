@@ -29,13 +29,14 @@ Built against Mattermost Server **11.6.x** using the official
 - **What did I miss**: everything unread across channels and DMs, mentions first (`mm unread`, MCP `list_unread` / `catch_up`) — without marking anything as read.
 - Send a message to a channel **or** a direct message to a user.
 - Attach files to a message: `mm send -f`, the TUI (`ctrl+o`) or MCP `send_message.files`.
+- Download the files people send you: `mm download`, the TUI (`i`) or MCP `download_file` — never overwrites.
 - Resolves user IDs to `@usernames` in batch — no opaque UUIDs.
 - Edit your own messages from the CLI, the TUI (`↑`) or MCP.
 - Delete your own messages (CLI `mm delete`, TUI `d`, MCP `delete_message`) — always confirmed.
 - Schedule messages for later delivery (CLI, TUI `ctrl+t`, MCP); delivered by the TUI while it runs.
 - Configurable aliases: DM a colleague by a short handle (`alex` → `alexandra.hernandez`).
 - Interactive TUI (`mm tui`) built on Bubble Tea: real-time over WebSocket, Markdown rendering, emoji picker, inline images.
-- MCP server (`mm mcp`) with **11 tools**, **4 resources** and **4 prompts**.
+- MCP server (`mm mcp`) with **12 tools**, **4 resources** and **4 prompts**.
 
 ---
 
@@ -196,6 +197,7 @@ Output is oldest → newest:
 [09:14] @john.smith: deploy listo en staging
 [09:15] @jane.doe: probando ahora
 [09:18] @sam.jones: 👍
+[09:20] @john.smith: el informe 📎 informe.pdf (1.2 MB)
 ```
 
 **Getting post IDs.** `mm edit --post <id>` needs an ID, and `--ids` (humans) or
@@ -210,7 +212,9 @@ mm read -c dev-backend --json | jq -r '.[] | select(.own) | "\(.id) \(.text)"'
 ```
 
 `--json` emits one array of objects with `id`, `time` (RFC3339), `from`, `text`,
-`own` and `file_ids` (when the message has attachments). `--mine` filters the
+`own`, and, when the message has attachments, `file_ids` plus `files` (each
+with `id`, `name`, `size` in bytes and `mime`; the `id` is what `mm download`
+takes). `--mine` filters the
 fetched window, so combine it with a larger `-n` if you're looking further back.
 
 ### `mm unread` — what did I miss
@@ -327,6 +331,31 @@ rather than assume: a destructive default has no business being implicit. This i
 also the way to replace a wrong attachment, since an **edit cannot change the
 files** of a post — delete it and send it again.
 
+### `mm download` (alias `mm dl`) — save attachments to disk
+
+| Flag / argument   | Description                                                |
+|-------------------|------------------------------------------------------------|
+| `<ref>…`          | Post ID or **permalink** (all its files), or a **file ID** (that file). Repeatable. |
+| `-c, --channel`   | No refs: the latest message with attachments in this channel. |
+| `-u, --user`      | No refs: the latest message with attachments in the DM with this user or alias. |
+| `-o, --output`    | Directory to save into (created if missing).               |
+
+```bash
+mm download -u alex                       # what alex just sent you
+mm download -c dev-backend -o ~/tmp
+mm dl https://chat.acme.com/acme/pl/4rmsfuwfafyuiq9qkbcgzjg73y
+mm read -u alex --json | jq -r '.[].files[]? | "\(.id) \(.name)"'   # find file IDs
+```
+
+Files land in your desktop download directory (`XDG_DOWNLOAD_DIR` from
+`~/.config/user-dirs.dirs`, e.g. `~/Descargas` on a Spanish desktop), falling
+back to `~/Downloads` and then the current directory. **Nothing is ever
+overwritten**: a name already taken is saved as `informe (1).pdf`. The name the
+server reports is reduced to its base name, so a crafted `../../.bashrc` lands
+as `.bashrc` inside the target directory. Each file is written under a
+temporary `.mm-*.part` name and only appears under its real name once complete.
+The whole file is held in memory while downloading.
+
 ### `mm schedule` — send messages later
 
 > This server has no scheduled-posts license, so delivery is done by **mm
@@ -395,11 +424,13 @@ older history** (paged), keeping your place. Press `y` to copy any message's
 Markdown source to the clipboard — handy for code blocks and formatted text
 alike. Clipboard needs `xclip`/`xsel` (X11) or `wl-copy` (Wayland).
 
-**Images.** Press `i` on the message pane to pick an image attachment; it is
-downloaded and rendered **inline** with [`chafa`](https://hpjansson.org/chafa/),
-which auto-detects the best protocol your terminal supports (sixel / kitty /
-iTerm2 / unicode symbols). The TUI is briefly suspended while the image is
-shown; press Enter to return. Requires `chafa` on `PATH`.
+**Attachments.** Press `i` on the message pane to list every attachment in the
+channel (newest selected). `enter` saves it to your download directory, with the
+same rules as `mm download` (the path shows in the status bar). On an image, `v`
+renders it **inline** with [`chafa`](https://hpjansson.org/chafa/), which
+auto-detects the best protocol your terminal supports (sixel / kitty / iTerm2 /
+unicode symbols). The TUI is briefly suspended while the image is shown; press
+Enter to return. Viewing requires `chafa` on `PATH`.
 
 **Sending files.** Press `ctrl+o` and type a path to queue an attachment for
 the next message. The prompt accepts **several paths on one line**, `~`, shell
@@ -424,7 +455,7 @@ scheduled messages carry text only — both are the same limits as `mm send`.
 | `j` / `k`       | Move within the focused pane (scroll the message pane when focused) |
 | `d`             | On the message pane: delete one of **your** messages — pick it, then `y` confirms |
 | `y`             | On the message pane: open the copy picker — pick a message, `enter`/`y` copies its **Markdown source** to the clipboard |
-| `i`             | On the message pane: open the image picker — pick an attachment, `enter` renders it inline with `chafa` |
+| `i`             | On the message pane: open the attachment picker — `enter` downloads, `v` renders an image inline with `chafa` |
 | `+`             | On the message pane: react — pick a message, then search an emoji and `enter` to apply |
 | `/`             | Filter the sidebar (matches alias and @handle)               |
 | `enter`         | Open the selected channel (marks it read; focus → composer)  |
@@ -520,6 +551,7 @@ npx @modelcontextprotocol/inspector mm mcp
 | `mm send`        | `send_message` | —                                           | —                                                         |
 | `mm edit`        | `edit_message` | —                                           | —                                                         |
 | `mm delete` / `rm` | `delete_message` | —                                        | —                                                         |
+| `mm download` / `dl` | `download_file` | —                                         | —                                                         |
 | `mm schedule add`| `schedule_message` | —                                       | —                                                         |
 | `mm schedule list/rm` | `manage_scheduled` | —                                  | —                                                         |
 | `mm alias`       | `manage_alias` | —                                           | —                                                         |
@@ -532,6 +564,13 @@ npx @modelcontextprotocol/inspector mm mcp
 `send_message` accepts an optional `files` array, mirroring `mm send -f`. The
 paths are read from the filesystem of the **host running `mm mcp`**, not from
 the MCP client's machine.
+
+`download_file` is its mirror: give it a `file_id`, a `post_id` (ID or
+permalink) or a `channel`/`user` for the latest message with attachments there,
+plus an optional `dir`. Files are written on the **host running `mm mcp`**, with
+the same no-overwrite rules as `mm download`, and the tool returns each saved
+`path`. `read_channel` lists attachments in `files` (with `file_id`, `name`,
+`size`, `mime`).
 
 Every message returned by `read_channel` (and by the message resources) carries
 its `post_id`, which is what `edit_message` needs to target a specific post —
@@ -592,6 +631,7 @@ mm/
 │   ├── unread.go
 │   ├── send.go
 │   ├── edit.go
+│   ├── download.go
 │   ├── schedule.go
 │   ├── alias.go
 │   ├── users.go
@@ -604,6 +644,7 @@ mm/
     ├── client/           — Mattermost API wrapper
     │   ├── mattermost.go
     │   ├── messaging.go  — Target, Send, EditPost (shared by CLI/TUI/MCP)
+    │   ├── download.go   — Attachment, DownloadFile (shared by CLI/TUI/MCP)
     │   └── unread.go     — Unread: the "what did I miss" reader (shared by CLI/MCP)
     ├── config/           — Persisted session (XDG, 0600)
     │   └── config.go
@@ -615,7 +656,8 @@ mm/
     │   ├── tools.go
     │   ├── resources.go
     │   ├── prompts.go
-    │   └── unread.go     — list_unread, mm://team/unread, catch_up
+    │   ├── unread.go     — list_unread, mm://team/unread, catch_up
+    │   └── download.go   — download_file
     └── tui/              — interactive terminal UI (Bubble Tea)
         ├── model.go
         ├── update.go
