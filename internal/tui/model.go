@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
-	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/muesli/termenv"
 	"github.com/rivo/uniseg"
 
@@ -33,7 +33,7 @@ const (
 	defaultLimit      = 30
 	maxLoadedPosts    = 400 // sliding-window cap on messages held in memory per channel
 	scheduleInterval  = 20  // seconds — scheduled-message delivery + safety refresh
-	reconnectInterval = 3  // seconds — WebSocket reconnect backoff
+	reconnectInterval = 3   // seconds — WebSocket reconnect backoff
 	defaultWrapAt     = 80
 )
 
@@ -228,9 +228,9 @@ func clusterIsEmoji(cluster string) bool {
 		case r >= 0x1F000 && r <= 0x1FAFF, // emoji & symbols planes (incl. flags)
 			r >= 0x2600 && r <= 0x27BF, // misc symbols + dingbats
 			r >= 0x2B00 && r <= 0x2BFF, // arrows/stars symbols
-			r == 0x200D, // zero-width joiner
-			r == 0x20E3, // combining enclosing keycap
-			r == 0xFE0F: // emoji variation selector
+			r == 0x200D,                // zero-width joiner
+			r == 0x20E3,                // combining enclosing keycap
+			r == 0xFE0F:                // emoji variation selector
 			return true
 		}
 	}

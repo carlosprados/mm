@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/carlosprados/mm/internal/client"
+	"github.com/spf13/cobra"
 )
 
 var usersCmd = &cobra.Command{
