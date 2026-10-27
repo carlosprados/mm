@@ -37,6 +37,24 @@ func TestInstallSkillUpToDateIgnoresStamp(t *testing.T) {
 	}
 }
 
+// --force always rewrites, so it refreshes the stamp of an identical copy.
+func TestInstallSkillForceRefreshesStamp(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := installSkill(dir, testDoc, "dev", false); err != nil {
+		t.Fatal(err)
+	}
+	file, err := installSkill(dir, testDoc, "v2.0.0", true)
+	if err != nil {
+		t.Fatalf("installSkill: %v", err)
+	}
+	if file == "" {
+		t.Fatal("--force reported up to date instead of rewriting")
+	}
+	if b, _ := os.ReadFile(file); !strings.Contains(string(b), "<!-- installed by mm v2.0.0 -->") {
+		t.Errorf("stamp not refreshed:\n%s", b)
+	}
+}
+
 func TestInstallSkillRefusesToClobber(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "SKILL.md")

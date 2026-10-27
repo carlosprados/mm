@@ -126,7 +126,7 @@ func installSkill(dir, doc, ver string, force bool) (string, error) {
 		current, _ := os.ReadFile(file)
 		same := stampRe.ReplaceAllString(string(current), "") == stampRe.ReplaceAllString(body, "")
 		switch {
-		case same && !link:
+		case same && !link && !force:
 			return "", nil
 		case link && !force:
 			dest, _ := os.Readlink(file)
