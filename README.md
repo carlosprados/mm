@@ -36,6 +36,7 @@ Built against Mattermost Server **11.6.x** using the official
 - Schedule messages for later delivery (CLI, TUI `ctrl+t`, MCP); delivered by the TUI while it runs.
 - Configurable aliases: DM a colleague by a short handle (`alex` → `alexandra.hernandez`).
 - Interactive TUI (`mm tui`) built on Bubble Tea: real-time over WebSocket, Markdown rendering, emoji picker, inline images.
+- Agent skill embedded in the binary: `mm skill install` teaches Claude Code (or any agent that reads a skills directory) how to drive `mm`.
 - MCP server (`mm mcp`) with **12 tools**, **4 resources** and **4 prompts**.
 
 ---
@@ -390,6 +391,25 @@ mm alias list
 mm alias rm sandra
 ```
 
+### `mm skill` — teach an AI agent to use mm
+
+`mm` carries a skill document ([`SKILL.md`](SKILL.md)) inside the binary: the
+commands, the JSON shapes, the rules for writing to real people and the errors.
+Installing it lets Claude Code, or any agent that reads a skills directory, use
+`mm` correctly instead of improvising against the REST API.
+
+```bash
+mm skill install              # ~/.claude/skills/mm/SKILL.md
+mm skill install --project    # ./.claude/skills/mm/SKILL.md
+mm skill install --dir <dir>  # anywhere else
+mm skill show                 # print it
+mm skill path                 # where install would write
+```
+
+Re-run `mm skill install` after upgrading `mm` so the skill matches the binary.
+An installed copy that differs from the embedded one (edited by hand) or that is
+a symlink is never overwritten without `--force`.
+
 ### Other commands
 
 | Command       | Purpose                                  |
@@ -557,6 +577,7 @@ npx @modelcontextprotocol/inspector mm mcp
 | `mm alias`       | `manage_alias` | —                                           | —                                                         |
 | `mm whoami`      | `whoami`       | —                                           | —                                                         |
 | `mm login/logout`| _host-side only_ — MCP reuses the saved session | — | —                                                |
+| `mm skill`       | _host-side only_ — installs the agent skill; MCP clients read the tool descriptions | — | —                     |
 
 **Tools** — explicit RPC actions (write side effects, parameterized reads).
 **Resources** — pull-model addressable data; some clients prefer them over tools.
@@ -632,6 +653,7 @@ mm/
 │   ├── send.go
 │   ├── edit.go
 │   ├── download.go
+│   ├── skill.go      — `mm skill install|show|path` (SKILL.md embedded by main.go)
 │   ├── schedule.go
 │   ├── alias.go
 │   ├── users.go

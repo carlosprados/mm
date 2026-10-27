@@ -59,6 +59,7 @@ Mapping table (keep in sync with the code):
 | `mm alias add/rm/list` | `manage_alias`    | —                                            | —                                               |
 | `mm whoami`            | `whoami`          | —                                            | —                                               |
 | `mm login` / `logout`  | _intentionally not exposed_ — auth is host-side, the MCP server reuses the saved session | — | — |
+| `mm skill install/show/path` | _intentionally not exposed_ — installs the agent skill on the host; MCP clients get the tool descriptions instead | — | — |
 
 Tools = explicit RPC actions. Resources = pull-model addressable data.
 Prompts = templates that hydrate themselves with live data and return ready-to-reason context.
@@ -85,6 +86,7 @@ mm/
 │   ├── delete.go      — `mm delete|rm [-c X|-u U] [--post <id|permalink>|--nth N] [-y]`
 │   ├── postref.go     — resolvePost: shared --post/--nth targeting for edit & delete
 │   ├── download.go    — `mm download|dl [refs…] [-c X|-u U] [-o dir]` — save attachments
+│   ├── skill.go       — `mm skill install|show|path` — the embedded SKILL.md (never writes through a symlink)
 │   ├── schedule.go    — `mm schedule add|list|rm` — server-side scheduled posts
 │   ├── users.go       — `mm users`
 │   ├── alias.go       — `mm alias add|rm|list` — short handles → usernames
@@ -126,6 +128,15 @@ mm/
         ├── emoji.go       — emoji dataset + ":query" search (model.SystemEmojis)
         └── styles.go      — lipgloss styles
 ```
+
+## Agent skill (`SKILL.md`)
+
+`SKILL.md` at the repo root is the skill agents learn `mm` from; `main.go`
+embeds it (`//go:embed` cannot reach outside its package) and `mm skill install`
+writes it to `~/.claude/skills/mm/`. **It is part of the parity rule**: any
+command, flag, JSON field or behaviour change must be reflected there too.
+`TestSkillMentionsEveryCommand` fails when a command or subcommand is missing
+from it. Write it for an agent, with placeholders only (the repo is public).
 
 ## TUI (`mm tui`)
 
